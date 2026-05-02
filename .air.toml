@@ -1,0 +1,31 @@
+# .air.toml — hot reload em desenvolvimento
+# Uso: air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/server"
+  cmd = "templ generate && go build -o ./tmp/server ./cmd/server"
+  delay = 500
+  exclude_dir = ["assets", "tmp", "vendor", "web/static/css", "deploy", "docs", "scripts"]
+  exclude_regex = ["_test\\.go", "_templ\\.go"]
+  include_dir = ["cmd", "internal", "migrations"]
+  include_ext = ["go", "templ", "sql", "yaml", "yml", "html"]
+  kill_delay = "2s"
+  log = "build-errors.log"
+  send_interrupt = true
+  stop_on_error = true
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

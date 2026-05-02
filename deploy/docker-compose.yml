@@ -1,0 +1,158 @@
+# SentinelACS — stack base (dev e servidor da empresa)
+#
+# CONTEXTO: a aplicação será executada no servidor dentro da rede interna
+# da empresa (não nesta máquina). Este arquivo serve para ambos:
+#   - Servidor da empresa: `docker compose -f deploy/docker-compose.yml up -d`
+#   - Dev local: mesmo comando, mas Voalle/FreeRADIUS ficam inacessíveis (esperado).
+#
+# Para produção pública (TLS/Traefik) use docker-compose.prod.yml em conjunto.
+#
+# Variáveis exigidas: ver .env.example
+
+name: sentinel-acs
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  mongodata:
+  genieacs_files:
+
+services:
+  # ──────────────── Postgres + TimescaleDB ────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: sentinel-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    ports:
+      - "127.0.0.1:5432:5432"   # acesso só do host (psql, pgAdmin)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ──────────────── Redis ────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sentinel-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks: [internal]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ──────────────── MongoDB (backend do GenieACS) ────────────────
+  mongo:
+    image: mongo:7
+    container_name: sentinel-mongo
+    volumes:
+      - mongodata:/data/db
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ──────────────── GenieACS (CWMP/TR-069) ────────────────
+  # Stack oficial: 3 processos (cwmp, nbi, fs) compartilhando o mesmo Mongo.
+  genieacs-cwmp:
+    image: drumsergio/genieacs:1.2
+    container_name: sentinel-genieacs-cwmp
+    command: ["genieacs-cwmp"]
+    environment:
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
+      GENIEACS_CWMP_PORT: 7547
+      GENIEACS_LOG_FILE: /var/log/genieacs/cwmp.log
+      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/cwmp-access.log
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks: [internal]
+    ports:
+      - "7547:7547"             # CWMP — público para CPEs
+    restart: unless-stopped
+
+  genieacs-nbi:
+    image: drumsergio/genieacs:1.2
+    container_name: sentinel-genieacs-nbi
+    command: ["genieacs-nbi"]
+    environment:
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
+      GENIEACS_NBI_PORT: 7557
+      GENIEACS_LOG_FILE: /var/log/genieacs/nbi.log
+      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/nbi-access.log
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks: [internal]
+    # NBI NUNCA exposto publicamente — apenas dentro da rede docker.
+    restart: unless-stopped
+
+  genieacs-fs:
+    image: drumsergio/genieacs:1.2
+    container_name: sentinel-genieacs-fs
+    command: ["genieacs-fs"]
+    environment:
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
+      GENIEACS_FS_PORT: 7567
+      GENIEACS_LOG_FILE: /var/log/genieacs/fs.log
+      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/fs-access.log
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks: [internal]
+    volumes:
+      - genieacs_files:/opt/genieacs/files
+    ports:
+      - "7567:7567"             # FS — público para CPEs baixarem firmware
+    restart: unless-stopped
+
+  # ──────────────── SentinelACS — app web ────────────────
+  app:
+    image: ${IMAGE_TAG:-sentinel-acs:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: sentinel-app
+    env_file: ../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      genieacs-nbi: { condition: service_started }
+    networks: [internal]
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ──────────────── SentinelACS — worker ────────────────
+  worker:
+    image: ${IMAGE_TAG:-sentinel-acs:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: sentinel-worker
+    command: ["/usr/local/bin/worker"]
+    env_file: ../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      genieacs-nbi: { condition: service_started }
+    networks: [internal]
+    restart: unless-stopped

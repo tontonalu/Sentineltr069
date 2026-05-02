@@ -1,0 +1,54 @@
+package layouts
+
+// Base é o layout principal — usado por todas as páginas que precisam
+// de chrome (header, footer, etc). Páginas vazias (login, 404) podem
+// preferir Bare se quiserem só o esqueleto HTML.
+
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="pt-BR">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta name="referrer" content="strict-origin-when-cross-origin"/>
+			<title>{ title } · SentinelACS</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+			<script src="/static/js/htmx.min.js" defer></script>
+			<script defer src="/static/js/alpine.min.js"></script>
+		</head>
+		<body class="min-h-screen">
+			<header class="border-b border-sentinel-100 bg-white px-6 py-3">
+				<div class="flex items-center justify-between">
+					<a href="/" class="text-lg font-semibold text-sentinel-900">SentinelACS</a>
+					<nav class="text-sm text-sentinel-500">
+						<a href="/devices" class="hover:text-sentinel-900">Devices</a>
+						<a href="/templates" class="ml-4 hover:text-sentinel-900">Templates</a>
+						<a href="/admin/users" class="ml-4 hover:text-sentinel-900">Usuários</a>
+						<a href="/logout" class="ml-4 hover:text-sentinel-900">Sair</a>
+					</nav>
+				</div>
+			</header>
+			<main class="px-6 py-8">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+// Bare é um layout sem header/footer, usado por /login e páginas de erro.
+templ Bare(title string) {
+	<!DOCTYPE html>
+	<html lang="pt-BR">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta name="referrer" content="strict-origin-when-cross-origin"/>
+			<title>{ title } · SentinelACS</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+			<script src="/static/js/htmx.min.js" defer></script>
+		</head>
+		<body class="min-h-screen flex items-center justify-center">
+			{ children... }
+		</body>
+	</html>
+}

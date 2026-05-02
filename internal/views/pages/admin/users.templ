@@ -1,0 +1,109 @@
+package admin
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	domain "github.com/celinet/sentinel-acs/internal/domain/identity"
+)
+
+// UsersList renderiza a lista paginada de usuários com ações inline.
+templ UsersList(csrfToken string, users []domain.User, total, page, pageSize int) {
+	@layouts.Base("Usuários") {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">Usuários</h1>
+				<div class="flex items-center gap-4">
+					<span class="text-sm text-sentinel-500">{ strconv.Itoa(total) } no total</span>
+					<a href="/admin/users/new" class="btn-primary">Novo usuário</a>
+				</div>
+			</div>
+
+			<div class="overflow-hidden rounded-lg bg-white shadow">
+				<table class="min-w-full divide-y divide-sentinel-100">
+					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
+						<tr>
+							<th class="px-4 py-3">Nome</th>
+							<th class="px-4 py-3">E-mail</th>
+							<th class="px-4 py-3">2FA</th>
+							<th class="px-4 py-3">Status</th>
+							<th class="px-4 py-3">Último login</th>
+							<th class="px-4 py-3 text-right">Ações</th>
+						</tr>
+					</thead>
+					<tbody id="users-tbody" class="divide-y divide-sentinel-100 text-sm">
+						for _, u := range users {
+							@UserRow(csrfToken, u)
+						}
+						if len(users) == 0 {
+							<tr><td colspan="6" class="px-4 py-8 text-center text-sentinel-500">Nenhum usuário encontrado.</td></tr>
+						}
+					</tbody>
+				</table>
+			</div>
+
+			@pager(page, pageSize, total)
+		</div>
+	}
+}
+
+// UserRow é um fragment para HTMX swaps (toggle active retorna a row atualizada).
+templ UserRow(csrfToken string, u domain.User) {
+	<tr id={ "user-row-" + u.ID.String() }>
+		<td class="px-4 py-3 font-medium text-sentinel-900">
+			<a href={ templ.URL("/admin/users/" + u.ID.String()) } class="hover:text-sentinel-700 hover:underline">{ u.FullName }</a>
+		</td>
+		<td class="px-4 py-3 text-sentinel-700">{ u.Email }</td>
+		<td class="px-4 py-3">
+			if u.TOTPEnabled {
+				<span class="inline-flex rounded-full bg-green-50 px-2 text-xs font-medium text-green-700">Ativo</span>
+			} else {
+				<span class="inline-flex rounded-full bg-sentinel-50 px-2 text-xs text-sentinel-500">Inativo</span>
+			}
+		</td>
+		<td class="px-4 py-3">
+			if u.IsActive {
+				<span class="inline-flex rounded-full bg-blue-50 px-2 text-xs font-medium text-blue-700">Ativo</span>
+			} else {
+				<span class="inline-flex rounded-full bg-red-50 px-2 text-xs font-medium text-red-700">Desativado</span>
+			}
+		</td>
+		<td class="px-4 py-3 text-sentinel-500">
+			if u.LastLoginAt != nil {
+				{ u.LastLoginAt.Format("02/01/2006 15:04") }
+			} else {
+				<span>—</span>
+			}
+		</td>
+		<td class="px-4 py-3 text-right">
+			<button
+				type="button"
+				hx-post={ "/admin/users/" + u.ID.String() + "/toggle" }
+				hx-headers={ `{"X-CSRF-Token": "` + csrfToken + `"}` }
+				hx-target={ "#user-row-" + u.ID.String() }
+				hx-swap="outerHTML"
+				class="text-sm text-sentinel-500 hover:text-sentinel-900"
+			>
+				if u.IsActive {
+					Desativar
+				} else {
+					Ativar
+				}
+			</button>
+		</td>
+	</tr>
+}
+
+templ pager(page, pageSize, total int) {
+	<div class="flex items-center justify-between text-sm text-sentinel-500">
+		<span>Página { strconv.Itoa(page) }</span>
+		<div class="space-x-2">
+			if page > 1 {
+				<a href={ templ.URL("/admin/users?page=" + strconv.Itoa(page - 1)) } class="btn-ghost">← Anterior</a>
+			}
+			if page * pageSize < total {
+				<a href={ templ.URL("/admin/users?page=" + strconv.Itoa(page + 1)) } class="btn-ghost">Próxima →</a>
+			}
+		</div>
+	</div>
+}

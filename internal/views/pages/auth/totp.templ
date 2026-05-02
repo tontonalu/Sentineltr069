@@ -1,0 +1,109 @@
+package auth
+
+import "github.com/celinet/sentinel-acs/internal/views/layouts"
+
+// VerifyTOTPPage — página exibida após login com senha quando o user tem 2FA.
+// O cookie sentinel_preauth carrega o token; o user só precisa digitar o código.
+templ VerifyTOTPPage(csrfToken, errMsg string) {
+	@layouts.Bare("Verificação 2FA") {
+		<div class="w-full max-w-sm rounded-lg bg-white p-8 shadow">
+			<h1 class="mb-2 text-2xl font-semibold text-sentinel-900">Verificação em duas etapas</h1>
+			<p class="mb-6 text-sm text-sentinel-500">Digite o código do seu app autenticador.</p>
+			@VerifyTOTPForm(csrfToken, errMsg)
+		</div>
+	}
+}
+
+templ VerifyTOTPForm(csrfToken, errMsg string) {
+	<form
+		id="totp-form"
+		hx-post="/login/totp"
+		hx-target="#totp-form"
+		hx-swap="outerHTML"
+		class="space-y-4"
+	>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+		<div>
+			<label for="code" class="block text-sm font-medium text-sentinel-700">Código (6 dígitos)</label>
+			<input
+				id="code"
+				type="text"
+				name="code"
+				inputmode="numeric"
+				pattern="[0-9]{6}"
+				maxlength="6"
+				autocomplete="one-time-code"
+				autofocus
+				required
+				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 text-center font-mono text-lg tracking-widest focus:border-sentinel-500 focus:outline-none"
+			/>
+		</div>
+
+		if errMsg != "" {
+			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
+		}
+
+		<button type="submit" class="btn-primary w-full">Verificar</button>
+		<a href="/login" class="block text-center text-sm text-sentinel-500 hover:text-sentinel-900">Cancelar e voltar</a>
+	</form>
+}
+
+// EnrollTOTPPage — exibida quando o user (logado) quer ativar 2FA.
+// otpAuthDataURL = "data:image/png;base64,..." gerado a partir do PNG do QR.
+templ EnrollTOTPPage(csrfToken, qrDataURL, secret, errMsg string) {
+	@layouts.Base("Ativar 2FA") {
+		<div class="mx-auto max-w-lg space-y-6">
+			<div>
+				<h1 class="text-2xl font-semibold text-sentinel-900">Ativar autenticação em duas etapas</h1>
+				<p class="mt-2 text-sm text-sentinel-500">
+					Escaneie o QR abaixo com Google Authenticator, Authy ou similar.
+					Depois insira o código de 6 dígitos para confirmar.
+				</p>
+			</div>
+
+			<div class="flex flex-col items-center space-y-3 rounded-lg bg-white p-6 shadow">
+				<img src={ qrDataURL } alt="QR Code TOTP" width="256" height="256"/>
+				<details class="w-full text-sm text-sentinel-500">
+					<summary class="cursor-pointer">Não consigo escanear — mostrar código manual</summary>
+					<code class="mt-2 block rounded bg-sentinel-50 p-2 font-mono break-all">{ secret }</code>
+				</details>
+			</div>
+
+			@EnrollTOTPForm(csrfToken, secret, errMsg)
+		</div>
+	}
+}
+
+templ EnrollTOTPForm(csrfToken, secret, errMsg string) {
+	<form
+		id="enroll-form"
+		hx-post="/settings/totp"
+		hx-target="#enroll-form"
+		hx-swap="outerHTML"
+		class="space-y-4 rounded-lg bg-white p-6 shadow"
+	>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+		<input type="hidden" name="secret" value={ secret }/>
+
+		<div>
+			<label for="enroll-code" class="block text-sm font-medium text-sentinel-700">Código de confirmação</label>
+			<input
+				id="enroll-code"
+				type="text"
+				name="code"
+				inputmode="numeric"
+				pattern="[0-9]{6}"
+				maxlength="6"
+				autocomplete="one-time-code"
+				required
+				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 text-center font-mono text-lg tracking-widest focus:border-sentinel-500 focus:outline-none"
+			/>
+		</div>
+
+		if errMsg != "" {
+			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
+		}
+
+		<button type="submit" class="btn-primary w-full">Confirmar e ativar</button>
+	</form>
+}

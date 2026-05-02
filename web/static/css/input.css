@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* SentinelACS — estilos base */
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-sentinel-50 text-sentinel-900 font-sans;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition;
+  }
+  .btn-primary {
+    @apply btn bg-sentinel-700 text-white hover:bg-sentinel-900;
+  }
+  .btn-ghost {
+    @apply btn text-sentinel-700 hover:bg-sentinel-100;
+  }
+}

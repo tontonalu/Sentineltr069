@@ -1,0 +1,48 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Generated code
+internal/views/**/*_templ.go
+internal/infrastructure/postgres/gen/*.go
+!internal/infrastructure/postgres/gen/.gitkeep
+
+# Tailwind build output
+web/static/css/app.css
+web/static/css/*.map
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json.example
+.DS_Store
+
+# Air (hot reload)
+tmp/
+build-errors.log
+
+# Test artifacts
+coverage.out
+cover.out
+*.coverprofile
+
+# Docker volumes (caso alguém aponte volumes locais)
+deploy/data/
+
+# Logs
+*.log

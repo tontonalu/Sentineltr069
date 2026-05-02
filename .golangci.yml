@@ -1,0 +1,45 @@
+# SentinelACS — golangci-lint config
+# Lints conservadores; subimos a régua à medida que o codebase amadurece.
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.23"
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+
+linters-settings:
+  revive:
+    rules:
+      - name: var-naming
+      - name: package-comments
+        disabled: true   # ativaremos quando os pacotes amadurecerem
+  gosec:
+    excludes:
+      - G304   # file inclusion via variable — usaremos rotineiramente em migrations
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - internal/views        # arquivos *_templ.go gerados
+    - internal/infrastructure/postgres/gen
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec

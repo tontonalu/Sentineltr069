@@ -1,0 +1,216 @@
+package devices
+
+import (
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	identity "github.com/celinet/sentinel-acs/internal/domain/identity"
+)
+
+// DetailInput agrega tudo que a página precisa, evitando refetch dentro do templ.
+type DetailInput struct {
+	Device   domain.Device
+	Vendor   *domain.Vendor
+	Model    *domain.DeviceModel
+	Customer *domain.Customer
+	POP      *domain.POP
+
+	// Permissões do usuário corrente (para mostrar/esconder botões).
+	CanReboot           bool
+	CanConnectionRequest bool
+}
+
+func DetailFromUser(u *identity.User, perms *identity.EffectivePermissions, in DetailInput) DetailInput {
+	if perms != nil {
+		in.CanReboot = perms.Has("device", "reboot", identity.GlobalScope)
+		in.CanConnectionRequest = perms.Has("device", "connection_req", identity.GlobalScope)
+	}
+	_ = u
+	return in
+}
+
+templ Detail(csrfToken string, in DetailInput) {
+	@layouts.Base(deviceTitle(in.Device)) {
+		<div class="space-y-6">
+			<div class="flex items-start justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold text-sentinel-900">{ deviceTitle(in.Device) }</h1>
+					<p class="text-sm text-sentinel-500">{ in.Device.GenieACSID }</p>
+				</div>
+				<a href="/devices" class="btn-ghost">← Voltar</a>
+			</div>
+
+			@deviceActions(csrfToken, in)
+
+			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+				<section class="rounded-lg bg-white p-6 shadow">
+					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Identificação</h2>
+					<dl class="grid grid-cols-2 gap-4 text-sm">
+						<div>
+							<dt class="text-sentinel-500">Status</dt>
+							<dd class="mt-1">@statusBadge(in.Device.Status)</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Serial</dt>
+							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.SerialNumber, "—") }</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">MAC</dt>
+							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.MAC, "—") }</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">OUI</dt>
+							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.OUI, "—") }</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Vendor</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Vendor != nil {
+									{ in.Vendor.Name }
+								} else {
+									—
+								}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Modelo</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Model != nil {
+									{ in.Model.Model }
+									<span class="ml-2 rounded bg-sentinel-50 px-1.5 text-xs uppercase">{ in.Model.TRDataModel }</span>
+								} else {
+									—
+								}
+							</dd>
+						</div>
+					</dl>
+				</section>
+
+				<section class="rounded-lg bg-white p-6 shadow">
+					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Conectividade</h2>
+					<dl class="grid grid-cols-2 gap-4 text-sm">
+						<div>
+							<dt class="text-sentinel-500">Firmware</dt>
+							<dd class="mt-1 text-sentinel-900">{ defaultStr(in.Device.FirmwareVersion, "—") }</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">IP WAN</dt>
+							<dd class="mt-1 font-mono text-sentinel-900">
+								if in.Device.IPWAN != nil {
+									{ in.Device.IPWAN.String() }
+								} else {
+									—
+								}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Último inform</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Device.LastInformAt != nil {
+									{ in.Device.LastInformAt.Format("02/01/2006 15:04:05") }
+								} else {
+									nunca
+								}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Último boot</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Device.LastBootAt != nil {
+									{ in.Device.LastBootAt.Format("02/01/2006 15:04:05") }
+								} else {
+									—
+								}
+							</dd>
+						</div>
+					</dl>
+				</section>
+
+				<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
+					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Negócio</h2>
+					<dl class="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
+						<div>
+							<dt class="text-sentinel-500">Cliente</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Customer != nil {
+									{ in.Customer.FullName }
+									if in.Customer.PPPoELogin != "" {
+										<div class="text-xs text-sentinel-500 font-mono">{ in.Customer.PPPoELogin }</div>
+									}
+								} else {
+									<span class="text-sentinel-500">não vinculado</span>
+								}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">Plano</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.Customer != nil {
+									{ defaultStr(in.Customer.PlanName, "—") }
+								} else {
+									—
+								}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-sentinel-500">POP</dt>
+							<dd class="mt-1 text-sentinel-900">
+								if in.POP != nil {
+									{ in.POP.Name }
+								} else {
+									<span class="text-sentinel-500">não atribuído</span>
+								}
+							</dd>
+						</div>
+					</dl>
+				</section>
+
+				if len(in.Device.Tags) > 0 {
+					<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
+						<h2 class="mb-3 text-sm font-medium text-sentinel-700">Tags do GenieACS</h2>
+						<div class="flex flex-wrap gap-2">
+							for _, t := range in.Device.Tags {
+								<span class="rounded-full bg-sentinel-50 px-2 py-0.5 text-xs text-sentinel-700">{ t }</span>
+							}
+						</div>
+					</section>
+				}
+			</div>
+		</div>
+	}
+}
+
+templ deviceActions(csrfToken string, in DetailInput) {
+	if in.CanReboot || in.CanConnectionRequest {
+		<section class="rounded-lg bg-white p-4 shadow">
+			<div class="flex flex-wrap items-center gap-2">
+				if in.CanConnectionRequest {
+					<form method="POST" action={ templ.URL("/devices/" + in.Device.ID.String() + "/connection-request") }>
+						<input type="hidden" name="_csrf" value={ csrfToken }/>
+						<button type="submit" class="btn-ghost">Connection Request</button>
+					</form>
+				}
+				if in.CanReboot {
+					<form method="POST" action={ templ.URL("/devices/" + in.Device.ID.String() + "/reboot") }
+						onsubmit="return confirm('Confirmar reboot do CPE?');">
+						<input type="hidden" name="_csrf" value={ csrfToken }/>
+						<button type="submit" class="btn-primary">Reboot</button>
+					</form>
+				}
+			</div>
+		</section>
+	}
+}
+
+func deviceTitle(d domain.Device) string {
+	if d.SerialNumber != "" {
+		return d.SerialNumber
+	}
+	return d.GenieACSID
+}
+
+func defaultStr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}

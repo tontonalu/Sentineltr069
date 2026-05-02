@@ -1,0 +1,60 @@
+package auth
+
+import "github.com/celinet/sentinel-acs/internal/views/layouts"
+
+// LoginPage renderiza a tela completa de login. csrfToken vem do middleware
+// de CSRF. errMsg fica vazio em GET; em POST com falha o handler chama
+// LoginForm diretamente (HTMX swap só do form).
+templ LoginPage(csrfToken, errMsg string) {
+	@layouts.Bare("Entrar") {
+		<div class="w-full max-w-sm rounded-lg bg-white p-8 shadow">
+			<h1 class="mb-6 text-2xl font-semibold text-sentinel-900">Entrar</h1>
+			@LoginForm(csrfToken, errMsg, "")
+		</div>
+	}
+}
+
+// LoginForm é renderizado tanto na primeira visita quanto após erro
+// (resposta de POST falhado, com hx-target="#login-form").
+templ LoginForm(csrfToken, errMsg, email string) {
+	<form
+		id="login-form"
+		hx-post="/login"
+		hx-target="#login-form"
+		hx-swap="outerHTML"
+		class="space-y-4"
+	>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+
+		<div>
+			<label for="email" class="block text-sm font-medium text-sentinel-700">E-mail</label>
+			<input
+				id="email"
+				type="email"
+				name="email"
+				value={ email }
+				required
+				autocomplete="username"
+				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"
+			/>
+		</div>
+
+		<div>
+			<label for="password" class="block text-sm font-medium text-sentinel-700">Senha</label>
+			<input
+				id="password"
+				type="password"
+				name="password"
+				required
+				autocomplete="current-password"
+				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"
+			/>
+		</div>
+
+		if errMsg != "" {
+			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
+		}
+
+		<button type="submit" class="btn-primary w-full">Entrar</button>
+	</form>
+}

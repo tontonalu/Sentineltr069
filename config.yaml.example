@@ -1,0 +1,17 @@
+# config.yaml.example — defaults não sensíveis carregados pelo koanf.
+# Copie para config.yaml se quiser sobrescrever defaults sem usar env vars.
+# Valores sensíveis (passwords, secrets) DEVEM ficar em .env, não aqui.
+
+app:
+  env: development
+  port: "8080"
+  base_url: http://localhost:8080
+  shutdown_timeout: 15s
+
+genieacs:
+  nbi_url: http://genieacs-nbi:7557
+  fs_url: http://genieacs-fs:7567
+
+log:
+  level: info
+  format: json

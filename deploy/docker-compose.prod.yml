@@ -1,0 +1,66 @@
+# SentinelACS — overrides de produção
+#
+# Uso (no servidor da empresa):
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# Adiciona Traefik com Let's Encrypt e ajusta a exposição da porta da app
+# para passar pelo proxy. Postgres/Redis/Mongo permanecem internos.
+
+name: sentinel-acs
+
+networks:
+  internal:
+  edge:
+    driver: bridge
+
+volumes:
+  traefik_letsencrypt:
+
+services:
+  traefik:
+    image: traefik:v3
+    container_name: sentinel-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.le.acme.tlschallenge=true"
+      - "--accesslog=true"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks: [edge]
+
+  app:
+    expose:
+      - "8080"
+    ports: !reset []          # remove exposição direta da porta 8080
+    networks: [internal, edge]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=sentinel-acs_edge"
+      - "traefik.http.routers.sentinel.rule=Host(`${PUBLIC_HOST}`)"
+      - "traefik.http.routers.sentinel.entrypoints=websecure"
+      - "traefik.http.routers.sentinel.tls.certresolver=le"
+      - "traefik.http.services.sentinel.loadbalancer.server.port=8080"
+      # HSTS + headers de segurança
+      - "traefik.http.middlewares.sec-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.sec-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.sec-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.sec-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.sec-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.sec-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.routers.sentinel.middlewares=sec-headers@docker"
+
+  # Postgres/Redis/Mongo herdam do compose base — sem alterações aqui.
+  # GenieACS-FS é o único que segue exposto para CPEs (porta 7567).
