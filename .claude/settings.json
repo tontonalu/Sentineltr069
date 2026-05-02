@@ -11,7 +11,31 @@
       "Bash(grep -E '^go\\\\.\\(mod|sum\\)$')",
       "Bash(sed -n '1,80p' /Users/tonton/Documents/GitHub/Sentineltr069/.github/workflows/ci.yml)",
       "Bash(docker --version)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Bash(brew --version)",
+      "Bash(brew install *)",
+      "Bash(go version *)",
+      "Bash(go mod *)",
+      "Bash(go install *)",
+      "Bash(export PATH=\"$PATH:$HOME/go/bin\")",
+      "Bash(templ generate *)",
+      "Bash(go get *)",
+      "Bash(templ fmt *)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(git add *)",
+      "Bash(sed -n '70,80p' internal/infrastructure/notifier/smtp/smtp.go)",
+      "Bash(sed -n '200,210p' internal/infrastructure/postgres/templates_repo.go)",
+      "Bash(sed -n '93,100p' internal/platform/crypto/argon2.go)",
+      "Bash(sed -n '45,55p' internal/transport/http/handlers/provisioning.go)",
+      "Bash(sed -n '63,72p' internal/infrastructure/genieacs/cache.go)",
+      "Bash(golangci-lint run *)",
+      "Bash(echo \"---exit: $?\")",
+      "Bash(golangci-lint config *)",
+      "Bash(sed -i.bak \"s/go-version: '1.23'/go-version: '1.25'/g\" .github/workflows/ci.yml)",
+      "Bash(sed -i.bak \"s/golang:1.23-alpine/golang:1.25-alpine/g\" deploy/Dockerfile)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(govulncheck ./...)"
     ]
   }
 }
