@@ -52,11 +52,9 @@ func (h *SettingsVendorsHandler) Create(w http.ResponseWriter, r *http.Request) 
 	}
 	v := domain.Vendor{Slug: draft.Slug, Name: draft.Name}
 	if err := h.Vendors.Create(r.Context(), &v); err != nil {
-		msg := "erro ao cadastrar vendor."
+		msg := err.Error()
 		if errors.Is(err, domain.ErrSlugDuplicate) {
 			msg = "Slug ou nome já cadastrado."
-		} else {
-			msg = err.Error()
 		}
 		logger.FromContext(r.Context()).Info("create vendor failed", "slug", draft.Slug, "err", err)
 		h.renderNewWithError(w, r, draft, msg)
