@@ -16,9 +16,9 @@ templ Base(title string) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<meta name="referrer" content="strict-origin-when-cross-origin"/>
 			<title>{ title } · SentinelACS</title>
-			<link rel="stylesheet" href="/static/css/app.css"/>
-			<script src="/static/js/htmx.min.js" defer></script>
-			<script defer src="/static/js/alpine.min.js"></script>
+			<link rel="stylesheet" href={ AssetURL("css/app.css") }/>
+			<script src={ AssetURL("js/htmx.min.js") } defer></script>
+			<script defer src={ AssetURL("js/alpine.min.js") }></script>
 			<style>
 				[x-cloak] { display: none !important; }
 			</style>
@@ -61,8 +61,8 @@ templ Bare(title string) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<meta name="referrer" content="strict-origin-when-cross-origin"/>
 			<title>{ title } · SentinelACS</title>
-			<link rel="stylesheet" href="/static/css/app.css"/>
-			<script src="/static/js/htmx.min.js" defer></script>
+			<link rel="stylesheet" href={ AssetURL("css/app.css") }/>
+			<script src={ AssetURL("js/htmx.min.js") } defer></script>
 		</head>
 		<body class="min-h-screen flex items-center justify-center bg-sentinel-50">
 			{ children... }

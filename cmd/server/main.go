@@ -30,6 +30,7 @@ import (
 	"github.com/celinet/sentinel-acs/internal/platform/ratelimit"
 	"github.com/celinet/sentinel-acs/internal/transport/http/handlers"
 	mw "github.com/celinet/sentinel-acs/internal/transport/http/middleware"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // version é injetado via -ldflags em build (deploy/Dockerfile).
@@ -51,6 +52,11 @@ func run() error {
 	log := logger.New(cfg.Log.Level, cfg.Log.Format)
 	slog.SetDefault(log)
 	log.Info("sentinel-acs starting", "version", version, "env", cfg.App.Env, "port", cfg.App.Port)
+
+	// AssetVersion vira o sufixo ?v= em /static/css/app.css e /static/js/*.js
+	// para invalidar cache do browser a cada deploy (Cache-Control: immutable
+	// não recheca por 1 ano sem mudança de URL).
+	layouts.AssetVersion = version
 
 	bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer bootCancel()

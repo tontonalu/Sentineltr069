@@ -61,7 +61,17 @@
       "Bash(rm -f bin/.tailwindcss)",
       "Bash(make tailwind *)",
       "Bash(make build *)",
-      "Bash(/Users/tonton/Documents/GitHub/Sentineltr069/bin/server --help)"
+      "Bash(/Users/tonton/Documents/GitHub/Sentineltr069/bin/server --help)",
+      "Bash(curl -s \"https://api.github.com/repos/celinet/Sentineltr069/actions/runs?branch=main&per_page=8\")",
+      "Bash(python3 -c 'import json, sys; d = json.load\\(sys.stdin\\); *)",
+      "Bash(curl -sI \"https://acs.celinet.com.br/\")",
+      "Bash(curl -sL \"https://acs.celinet.com.br/login\")",
+      "Bash(curl -sI \"https://acs.celinet.com.br/static/css/app.css\")",
+      "Bash(lsof -ti:8080)",
+      "Bash(xargs -r kill)",
+      "Bash(APP_PORT=8090 /Users/tonton/Documents/GitHub/Sentineltr069/bin/server)",
+      "Bash(curl -s http://localhost:8090/login)",
+      "Bash(lsof -ti:8090)"
     ]
   }
 }
