@@ -84,10 +84,14 @@ echo "[deploy] subindo stack"
 $COMPOSE up -d --remove-orphans
 
 # ──────────── Healthcheck loop ────────────
+# Usa o HEALTHCHECK definido no Dockerfile (wget http://localhost:8080/healthz
+# dentro do container). curl 127.0.0.1:8080 do host só funciona em dev — em
+# prod a porta não é exposta (Traefik proxy).
 echo -n "[deploy] healthcheck "
 HEALTH_OK=0
 for i in {1..30}; do
-    if curl -fsSL -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz | grep -q '^2'; then
+    HEALTH=$(docker inspect --format='{{.State.Health.Status}}' sentinel-app 2>/dev/null || echo "missing")
+    if [[ "$HEALTH" == "healthy" ]]; then
         HEALTH_OK=1
         break
     fi

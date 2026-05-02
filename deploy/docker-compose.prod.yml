@@ -45,6 +45,11 @@ services:
     # Em produção o .env vive em /opt/sentinelacs/config/.env (não em ../.env
     # como em dev). env_file no override SUBSTITUI o do base — não acumula.
     env_file: /opt/sentinelacs/config/.env
+    # Monta secrets/ read-only — app.age.key cifra TOTP/credenciais em PG.
+    # Path dentro do container espelha o do host para que APP_AGE_KEY_FILE
+    # do .env funcione sem precisar de variantes dev/prod.
+    volumes:
+      - /opt/sentinelacs/secrets:/opt/sentinelacs/secrets:ro
     expose:
       - "8080"
     ports: !reset []          # remove exposição direta da porta 8080
@@ -68,6 +73,9 @@ services:
   worker:
     # Mesmo override de env_file que o app — em prod o .env é absoluto.
     env_file: /opt/sentinelacs/config/.env
+    # Worker também precisa do app.age.key (operações de cifragem).
+    volumes:
+      - /opt/sentinelacs/secrets:/opt/sentinelacs/secrets:ro
 
   # Postgres/Redis/Mongo herdam do compose base — sem alterações aqui.
   # GenieACS-FS é o único que segue exposto para CPEs (porta 7567).
