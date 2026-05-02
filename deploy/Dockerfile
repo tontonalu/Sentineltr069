@@ -5,7 +5,7 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates curl
 
 # Cache de dependências
 COPY go.mod go.sum* ./
@@ -17,6 +17,17 @@ COPY . .
 # Geração de templates (templ)
 RUN go install github.com/a-h/templ/cmd/templ@latest && \
     templ generate
+
+# Tailwind CLI standalone (sem precisar instalar Node) gera web/static/css/app.css.
+# htmx.min.js é baixado para web/static/js/. Ambos entram no //go:embed do binário.
+RUN curl -fsSL -o /usr/local/bin/tailwindcss \
+        "https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64" && \
+    chmod +x /usr/local/bin/tailwindcss && \
+    cd web && \
+    /usr/local/bin/tailwindcss -i ./static/css/input.css -o ./static/css/app.css --minify && \
+    cd .. && \
+    mkdir -p web/static/js && \
+    curl -fsSL -o web/static/js/htmx.min.js "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
 
 # Build dos 3 binários estáticos.
 # -trimpath remove caminhos absolutos do binário (anti-forensics + reproducible builds).
