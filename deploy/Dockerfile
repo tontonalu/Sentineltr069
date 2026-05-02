@@ -38,8 +38,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ──────────────── Stage 2: runtime ────────────────
 FROM alpine:3.20 AS runtime
 
+# UID/GID 9001 fixo bate com o user 'sentinel' criado pelo bootstrap.sh
+# no host — sem isso, volumes montados como /opt/sentinelacs/secrets/
+# (perms 0750 sentinel:sentinel) ficam ilegíveis dentro do container.
 RUN apk add --no-cache ca-certificates tzdata wget && \
-    addgroup -S app && adduser -S app -G app
+    addgroup -g 9001 -S app && \
+    adduser -u 9001 -S app -G app
 
 WORKDIR /app
 

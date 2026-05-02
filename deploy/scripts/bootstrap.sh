@@ -43,15 +43,35 @@ if [[ "$DEB_VER" -lt 13 ]]; then
 fi
 
 # ──────────── Sentinel user ────────────
+# UID/GID 9001 fixo casa com o user 'app' (UID 9001) dentro do container,
+# para que volumes do tipo bind funcionem sem cross-permissions hell.
+# Se sentinel já existe com UID diferente (instalação antiga), migramos
+# o UID/GID e ajustamos ownership de tudo em /opt/sentinelacs/.
 SENTINEL_USER=sentinel
 SENTINEL_HOME=/opt/sentinelacs
+SENTINEL_UID=9001
+SENTINEL_GID=9001
+
+if ! getent group "$SENTINEL_USER" &>/dev/null; then
+    groupadd --system --gid "$SENTINEL_GID" "$SENTINEL_USER"
+elif [[ "$(getent group "$SENTINEL_USER" | cut -d: -f3)" != "$SENTINEL_GID" ]]; then
+    log "ajustando GID de $SENTINEL_USER para $SENTINEL_GID"
+    groupmod --gid "$SENTINEL_GID" "$SENTINEL_USER"
+fi
 
 if ! id -u "$SENTINEL_USER" &>/dev/null; then
-    log "criando usuário system '$SENTINEL_USER'"
-    useradd --system --create-home --home-dir "$SENTINEL_HOME" \
-            --shell /usr/sbin/nologin --user-group "$SENTINEL_USER"
+    log "criando usuário system '$SENTINEL_USER' (UID $SENTINEL_UID)"
+    useradd --system --uid "$SENTINEL_UID" --gid "$SENTINEL_USER" \
+            --create-home --home-dir "$SENTINEL_HOME" \
+            --shell /usr/sbin/nologin "$SENTINEL_USER"
+elif [[ "$(id -u "$SENTINEL_USER")" != "$SENTINEL_UID" ]]; then
+    OLD_UID=$(id -u "$SENTINEL_USER")
+    log "ajustando UID de $SENTINEL_USER de $OLD_UID para $SENTINEL_UID"
+    usermod --uid "$SENTINEL_UID" "$SENTINEL_USER"
+    # Migra ownership de qualquer file/dir que pertencia ao UID antigo.
+    find /opt/sentinelacs -uid "$OLD_UID" -exec chown "$SENTINEL_UID" {} + 2>/dev/null || true
 else
-    log "usuário '$SENTINEL_USER' já existe"
+    log "usuário '$SENTINEL_USER' já existe com UID correto"
 fi
 
 # ──────────── Diretórios ────────────
