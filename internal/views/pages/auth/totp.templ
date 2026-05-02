@@ -38,11 +38,9 @@ templ VerifyTOTPForm(csrfToken, errMsg string) {
 				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 text-center font-mono text-lg tracking-widest focus:border-sentinel-500 focus:outline-none"
 			/>
 		</div>
-
 		if errMsg != "" {
 			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
 		}
-
 		<button type="submit" class="btn-primary w-full">Verificar</button>
 		<a href="/login" class="block text-center text-sm text-sentinel-500 hover:text-sentinel-900">Cancelar e voltar</a>
 	</form>
@@ -60,7 +58,6 @@ templ EnrollTOTPPage(csrfToken, qrDataURL, secret, errMsg string) {
 					Depois insira o código de 6 dígitos para confirmar.
 				</p>
 			</div>
-
 			<div class="flex flex-col items-center space-y-3 rounded-lg bg-white p-6 shadow">
 				<img src={ qrDataURL } alt="QR Code TOTP" width="256" height="256"/>
 				<details class="w-full text-sm text-sentinel-500">
@@ -68,7 +65,6 @@ templ EnrollTOTPPage(csrfToken, qrDataURL, secret, errMsg string) {
 					<code class="mt-2 block rounded bg-sentinel-50 p-2 font-mono break-all">{ secret }</code>
 				</details>
 			</div>
-
 			@EnrollTOTPForm(csrfToken, secret, errMsg)
 		</div>
 	}
@@ -84,7 +80,6 @@ templ EnrollTOTPForm(csrfToken, secret, errMsg string) {
 	>
 		<input type="hidden" name="_csrf" value={ csrfToken }/>
 		<input type="hidden" name="secret" value={ secret }/>
-
 		<div>
 			<label for="enroll-code" class="block text-sm font-medium text-sentinel-700">Código de confirmação</label>
 			<input
@@ -99,11 +94,9 @@ templ EnrollTOTPForm(csrfToken, secret, errMsg string) {
 				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 text-center font-mono text-lg tracking-widest focus:border-sentinel-500 focus:outline-none"
 			/>
 		</div>
-
 		if errMsg != "" {
 			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
 		}
-
 		<button type="submit" class="btn-primary w-full">Confirmar e ativar</button>
 	</form>
 }

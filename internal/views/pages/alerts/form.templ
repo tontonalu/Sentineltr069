@@ -3,8 +3,8 @@ package alerts
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
 	domain "github.com/celinet/sentinel-acs/internal/domain/alerting"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // FormInput agrega o necessário para new/edit. ConditionJSON é editado
@@ -26,7 +26,6 @@ templ Form(in FormInput) {
 	@layouts.Base(formTitle(in)) {
 		<div class="mx-auto max-w-3xl space-y-6">
 			<h1 class="text-2xl font-semibold text-sentinel-900">{ formTitle(in) }</h1>
-
 			if len(in.Errors) > 0 {
 				<div class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
 					<ul class="list-disc pl-5">
@@ -36,10 +35,8 @@ templ Form(in FormInput) {
 					</ul>
 				</div>
 			}
-
 			<form method="post" action={ formAction(in) } class="space-y-5 rounded-lg bg-white p-6 shadow">
 				<input type="hidden" name="_csrf" value={ in.CSRF }/>
-
 				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 					<label class="block">
 						<span class="text-xs uppercase tracking-wide text-sentinel-500">Nome</span>
@@ -66,7 +63,6 @@ templ Form(in FormInput) {
 						<span>Ativa</span>
 					</label>
 				</div>
-
 				<label class="block">
 					<span class="text-xs uppercase tracking-wide text-sentinel-500">Condição (JSON DSL)</span>
 					<textarea name="condition" rows="10" required class="input mt-1 w-full font-mono text-xs">{ in.ConditionJSON }</textarea>
@@ -74,7 +70,6 @@ templ Form(in FormInput) {
 						Exemplo: { conditionExample() }
 					</span>
 				</label>
-
 				<label class="block">
 					<span class="text-xs uppercase tracking-wide text-sentinel-500">Canais (JSON array)</span>
 					<textarea name="channels" rows="4" class="input mt-1 w-full font-mono text-xs">{ in.ChannelsJSON }</textarea>
@@ -82,7 +77,6 @@ templ Form(in FormInput) {
 						Exemplo: { channelsExample() }
 					</span>
 				</label>
-
 				<div class="flex justify-end gap-2">
 					<a href="/alerts" class="btn-ghost">Cancelar</a>
 					<button type="submit" class="btn-primary">Salvar</button>

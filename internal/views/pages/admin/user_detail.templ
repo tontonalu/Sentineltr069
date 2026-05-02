@@ -2,6 +2,7 @@ package admin
 
 import (
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // UserDetailPage — página com perfil + roles atribuídos + atribuir novo role.
@@ -15,7 +16,6 @@ templ UserDetailPage(csrfToken string, detail *appidentity.UserDetail) {
 				</div>
 				<a href="/admin/users" class="btn-ghost">← Voltar</a>
 			</div>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Status</h2>
 				<dl class="grid grid-cols-2 gap-4 text-sm">
@@ -55,7 +55,6 @@ templ UserDetailPage(csrfToken string, detail *appidentity.UserDetail) {
 					</div>
 				</dl>
 			</section>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Papéis atribuídos</h2>
 				if len(detail.AssignedRoles) == 0 {
@@ -82,7 +81,6 @@ templ UserDetailPage(csrfToken string, detail *appidentity.UserDetail) {
 					</ul>
 				}
 			</section>
-
 			if len(detail.AvailableRoles) > 0 {
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-3 text-lg font-medium text-sentinel-900">Atribuir novo papel</h2>

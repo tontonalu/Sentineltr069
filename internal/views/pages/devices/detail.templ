@@ -1,9 +1,9 @@
 package devices
 
 import (
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
-	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	identity "github.com/celinet/sentinel-acs/internal/domain/identity"
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // DetailInput agrega tudo que a página precisa, evitando refetch dentro do templ.
@@ -15,7 +15,7 @@ type DetailInput struct {
 	POP      *domain.POP
 
 	// Permissões do usuário corrente (para mostrar/esconder botões).
-	CanReboot           bool
+	CanReboot            bool
 	CanConnectionRequest bool
 }
 
@@ -41,16 +41,15 @@ templ Detail(csrfToken string, in DetailInput) {
 					<a href="/devices" class="btn-ghost">← Voltar</a>
 				</div>
 			</div>
-
 			@deviceActions(csrfToken, in)
-
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Identificação</h2>
 					<dl class="grid grid-cols-2 gap-4 text-sm">
 						<div>
 							<dt class="text-sentinel-500">Status</dt>
-							<dd class="mt-1">@statusBadge(in.Device.Status)</dd>
+							<dd class="mt-1">@statusBadge(in.Device.Status)
+</dd>
 						</div>
 						<div>
 							<dt class="text-sentinel-500">Serial</dt>
@@ -87,7 +86,6 @@ templ Detail(csrfToken string, in DetailInput) {
 						</div>
 					</dl>
 				</section>
-
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Conectividade</h2>
 					<dl class="grid grid-cols-2 gap-4 text-sm">
@@ -127,7 +125,6 @@ templ Detail(csrfToken string, in DetailInput) {
 						</div>
 					</dl>
 				</section>
-
 				<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
 					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Negócio</h2>
 					<dl class="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
@@ -166,7 +163,6 @@ templ Detail(csrfToken string, in DetailInput) {
 						</div>
 					</dl>
 				</section>
-
 				if len(in.Device.Tags) > 0 {
 					<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
 						<h2 class="mb-3 text-sm font-medium text-sentinel-700">Tags do GenieACS</h2>
@@ -193,8 +189,11 @@ templ deviceActions(csrfToken string, in DetailInput) {
 					</form>
 				}
 				if in.CanReboot {
-					<form method="POST" action={ templ.URL("/devices/" + in.Device.ID.String() + "/reboot") }
-						onsubmit="return confirm('Confirmar reboot do CPE?');">
+					<form
+						method="POST"
+						action={ templ.URL("/devices/" + in.Device.ID.String() + "/reboot") }
+						onsubmit="return confirm('Confirmar reboot do CPE?');"
+					>
 						<input type="hidden" name="_csrf" value={ csrfToken }/>
 						<button type="submit" class="btn-primary">Reboot</button>
 					</form>

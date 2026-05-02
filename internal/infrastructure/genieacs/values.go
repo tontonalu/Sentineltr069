@@ -72,6 +72,34 @@ func ParamString(raw map[string]any, path string) string {
 	}
 }
 
+// ParamObject devolve o nó intermediário (map cru do NBI) para um path —
+// útil quando precisamos iterar sub-instâncias numéricas (AssociatedDevice.{1,2,...}).
+// ParamValue retorna nil pra esses casos por design (evita devolver string lixo).
+func ParamObject(raw map[string]any, path string) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	if path == "" {
+		return raw
+	}
+	current := any(raw)
+	for _, p := range strings.Split(path, ".") {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		next, ok := m[p]
+		if !ok {
+			return nil
+		}
+		current = next
+	}
+	if m, ok := current.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
 // FirstNonEmpty devolve o primeiro path que produz string não-vazia.
 // Útil para escolher entre TR-098 e TR-181 sem saber qual o device usa.
 func FirstNonEmpty(raw map[string]any, paths ...string) string {

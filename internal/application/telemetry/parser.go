@@ -115,21 +115,18 @@ func bandKey(band string) string {
 
 // countAssociatedTR098 conta sub-objetos AssociatedDevice.{N}.MACAddress.
 func countAssociatedTR098(raw map[string]any, base string) *int {
-	v := genieacs.ParamValue(raw, base+".AssociatedDevice")
-	return countSubObjects(v)
+	return countSubObjects(genieacs.ParamObject(raw, base+".AssociatedDevice"))
 }
 
 func countAssociatedTR181(raw map[string]any, ap string) *int {
-	v := genieacs.ParamValue(raw, ap+".AssociatedDevice")
-	return countSubObjects(v)
+	return countSubObjects(genieacs.ParamObject(raw, ap+".AssociatedDevice"))
 }
 
 // countSubObjects conta filhos de um nó intermediário do NBI.
 // O NBI marca objetos com "_object": true; os filhos numerados (1, 2, 3...)
 // representam instâncias.
-func countSubObjects(v any) *int {
-	m, ok := v.(map[string]any)
-	if !ok {
+func countSubObjects(m map[string]any) *int {
+	if m == nil {
 		return nil
 	}
 	c := 0

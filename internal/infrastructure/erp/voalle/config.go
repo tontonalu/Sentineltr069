@@ -74,7 +74,7 @@ func parseConfig(raw map[string]any) (Config, error) {
 	}
 
 	if v, _ := raw["base_url"].(string); v != "" {
-		cfg.BaseURL = strings.TrimRight(v, "/")
+		cfg.BaseURL = strings.TrimRight(strings.TrimSpace(v), "/")
 	}
 	if v, _ := raw["client_id"].(string); v != "" {
 		cfg.ClientID = v

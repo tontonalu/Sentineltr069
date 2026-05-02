@@ -3,8 +3,8 @@ package alerts
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
 	domain "github.com/celinet/sentinel-acs/internal/domain/alerting"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // ListInput agrupa o que /alerts mostra: alertas ativos + regras cadastradas.
@@ -22,7 +22,6 @@ templ List(in ListInput) {
 				<h1 class="text-2xl font-semibold text-sentinel-900">Alertas</h1>
 				<a href="/alerts/rules/new" class="btn-primary">Nova regra</a>
 			</div>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<div class="mb-3 flex items-center justify-between">
 					<h2 class="text-lg font-medium text-sentinel-900">Ativos</h2>
@@ -49,7 +48,6 @@ templ List(in ListInput) {
 					</table>
 				}
 			</section>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<div class="mb-3 flex items-center justify-between">
 					<h2 class="text-lg font-medium text-sentinel-900">Regras</h2>
@@ -82,9 +80,10 @@ templ List(in ListInput) {
 									<td class="px-2 py-2 font-mono text-xs">{ string(r.Condition.Metric) }</td>
 									<td class="px-2 py-2 font-mono text-xs">
 										{ string(r.Condition.Aggregation) } { string(r.Condition.Operator) } { formatThreshold(r.Condition.Threshold) }
-										<span class="text-sentinel-500"> ({ r.Condition.Window })</span>
+										<span class="text-sentinel-500">({ r.Condition.Window })</span>
 									</td>
-									<td class="px-2 py-2">@severityBadge(r.Severity)</td>
+									<td class="px-2 py-2">@severityBadge(r.Severity)
+</td>
 									<td class="px-2 py-2 text-sentinel-700">{ strconv.Itoa(r.CooldownMinutes) }min</td>
 									<td class="px-2 py-2">
 										if r.IsActive {
@@ -108,7 +107,8 @@ templ List(in ListInput) {
 
 templ AlertRow(csrf string, canAck bool, a domain.Alert) {
 	<tr id={ "alert-row-" + a.ID.String() }>
-		<td class="px-2 py-2">@severityBadge(a.Severity)</td>
+		<td class="px-2 py-2">@severityBadge(a.Severity)
+</td>
 		<td class="px-2 py-2 text-sentinel-700 text-xs">{ a.FiredAt.Format("02/01 15:04") }</td>
 		<td class="px-2 py-2 font-mono text-xs">
 			if a.DeviceID != nil {

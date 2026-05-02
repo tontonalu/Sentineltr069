@@ -3,9 +3,9 @@ package templates
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
-	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/domain/inventory"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // idxStr — helper para emitir índice posicional como string nas checkboxes.
@@ -37,7 +37,6 @@ templ Form(in FormInput) {
 					<span class="font-mono text-sm text-sentinel-500">v{ strconv.Itoa(in.Version) }</span>
 				}
 			</div>
-
 			if len(in.Errors) > 0 {
 				<div class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
 					<ul class="list-disc pl-5">
@@ -47,10 +46,8 @@ templ Form(in FormInput) {
 					</ul>
 				</div>
 			}
-
 			<form method="post" action={ formAction(in) } class="space-y-6 rounded-lg bg-white p-6 shadow" x-data="paramsForm()">
 				<input type="hidden" name="_csrf" value={ in.CSRF }/>
-
 				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 					<label class="block">
 						<span class="text-xs uppercase tracking-wide text-sentinel-500">Nome</span>
@@ -74,7 +71,6 @@ templ Form(in FormInput) {
 						<span>Ativo</span>
 					</label>
 				</div>
-
 				<div>
 					<div class="mb-2 flex items-center justify-between">
 						<h2 class="text-lg font-semibold text-sentinel-900">Parâmetros</h2>
@@ -101,18 +97,15 @@ templ Form(in FormInput) {
 						<div></div>
 					</template>
 				</div>
-
 				<label class="block">
 					<span class="text-xs uppercase tracking-wide text-sentinel-500">Nota da mudança (opcional)</span>
 					<input type="text" name="change_note" value={ in.ChangeNote } class="input mt-1 w-full"/>
 				</label>
-
 				<div class="flex justify-end gap-2">
 					<a href="/templates" class="btn-ghost">Cancelar</a>
 					<button type="submit" class="btn-primary">Salvar</button>
 				</div>
 			</form>
-
 			<script>
 				function paramsForm() {
 					return {

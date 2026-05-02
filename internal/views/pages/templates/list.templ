@@ -3,21 +3,21 @@ package templates
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
-	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/domain/inventory"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // ListInput agrega o necessário para a tabela de profiles.
 type ListInput struct {
-	Profiles  []tmpl.Profile
-	Vendors   []inventory.Vendor
-	Models    []inventory.DeviceModel
-	Search    string
-	VendorID  string
-	ModelID   string
+	Profiles   []tmpl.Profile
+	Vendors    []inventory.Vendor
+	Models     []inventory.DeviceModel
+	Search     string
+	VendorID   string
+	ModelID    string
 	ActiveOnly bool
-	CSRF      string
+	CSRF       string
 }
 
 templ List(in ListInput) {
@@ -27,7 +27,6 @@ templ List(in ListInput) {
 				<h1 class="text-2xl font-semibold text-sentinel-900">Profiles de configuração</h1>
 				<a href="/templates/new" class="btn-primary">Novo profile</a>
 			</div>
-
 			<form method="get" class="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
 				<div class="flex flex-col">
 					<label class="text-xs uppercase tracking-wide text-sentinel-500">Buscar</label>
@@ -48,7 +47,6 @@ templ List(in ListInput) {
 				</label>
 				<button type="submit" class="btn-secondary">Filtrar</button>
 			</form>
-
 			<div class="overflow-hidden rounded-lg bg-white shadow">
 				<table class="min-w-full divide-y divide-sentinel-100">
 					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">

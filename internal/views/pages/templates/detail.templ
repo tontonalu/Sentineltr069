@@ -3,8 +3,8 @@ package templates
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 type DetailInput struct {
@@ -28,7 +28,6 @@ templ Detail(in DetailInput) {
 					<a href={ templ.URL("/templates/" + in.Profile.ID.String() + "/edit") } class="btn-secondary">Editar</a>
 				</div>
 			</div>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Parâmetros</h2>
 				<table class="min-w-full divide-y divide-sentinel-100 text-sm">
@@ -66,7 +65,6 @@ templ Detail(in DetailInput) {
 					</tbody>
 				</table>
 			</section>
-
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Histórico</h2>
 				if len(in.History) == 0 {

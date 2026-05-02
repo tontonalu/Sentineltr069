@@ -3,16 +3,15 @@ package devices
 import (
 	"strconv"
 
-	"github.com/celinet/sentinel-acs/internal/views/layouts"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
-	tele "github.com/celinet/sentinel-acs/internal/domain/telemetry"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // HistoryInput agrega todos os dados que a página de histórico precisa.
 // Pré-carregado pelo handler — templ não faz queries.
 type HistoryInput struct {
 	Device       domain.Device
-	Range        string  // "24h" | "7d" | "30d"
+	Range        string // "24h" | "7d" | "30d"
 	WifiSeries   []SeriesPoint
 	WifiSeries5G []SeriesPoint
 	WanRxSeries  []SeriesPoint
@@ -26,7 +25,7 @@ type HistoryInput struct {
 
 // SeriesPoint — par (epoch ms, valor). Mantido como float64 para SVG fácil.
 type SeriesPoint struct {
-	X int64   // epoch millis (UTC)
+	X int64 // epoch millis (UTC)
 	Y float64
 }
 
@@ -51,10 +50,8 @@ templ History(in HistoryInput) {
 					@rangeSelector(in.Device.ID.String(), in.Range)
 				</div>
 			</div>
-
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 				@summaryCard(in.Summary)
-
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-3 text-lg font-medium text-sentinel-900">Clientes Wi-Fi conectados</h2>
 					if len(in.WifiSeries) == 0 && len(in.WifiSeries5G) == 0 {
@@ -71,7 +68,6 @@ templ History(in HistoryInput) {
 						@dualLineSVG(in.WifiSeries, in.WifiSeries5G, "#3B82F6", "#10B981")
 					}
 				</section>
-
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-3 text-lg font-medium text-sentinel-900">CPU & Memória (%)</h2>
 					if len(in.CPUSeries) == 0 && len(in.MemSeries) == 0 {
@@ -88,7 +84,6 @@ templ History(in HistoryInput) {
 						@dualLineSVG(in.CPUSeries, in.MemSeries, "#F43F5E", "#F59E0B")
 					}
 				</section>
-
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-3 text-lg font-medium text-sentinel-900">Tráfego WAN (bytes)</h2>
 					if len(in.WanRxSeries) == 0 && len(in.WanTxSeries) == 0 {
@@ -176,15 +171,15 @@ templ summaryCard(s HistorySummary) {
 templ dualLineSVG(a, b []SeriesPoint, colorA, colorB string) {
 	<svg viewBox="0 0 900 240" preserveAspectRatio="none" class="w-full h-48 bg-sentinel-50 rounded">
 		<g stroke="#E5E7EB" stroke-width="1">
-			<line x1="0"   y1="60"  x2="900" y2="60"/>
-			<line x1="0"   y1="120" x2="900" y2="120"/>
-			<line x1="0"   y1="180" x2="900" y2="180"/>
+			<line x1="0" y1="60" x2="900" y2="60"></line>
+			<line x1="0" y1="120" x2="900" y2="120"></line>
+			<line x1="0" y1="180" x2="900" y2="180"></line>
 		</g>
 		if len(a) > 0 {
-			<polyline fill="none" stroke={ colorA } stroke-width="2" points={ buildPolyline(a, b) }/>
+			<polyline fill="none" stroke={ colorA } stroke-width="2" points={ buildPolyline(a, b) }></polyline>
 		}
 		if len(b) > 0 {
-			<polyline fill="none" stroke={ colorB } stroke-width="2" points={ buildPolylineB(a, b) }/>
+			<polyline fill="none" stroke={ colorB } stroke-width="2" points={ buildPolylineB(a, b) }></polyline>
 		}
 	</svg>
 }
