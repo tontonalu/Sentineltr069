@@ -74,8 +74,12 @@ type BatchCounts struct {
 
 // HealthRow representa uma linha do card "Saúde do sistema". Mirror leve do
 // que healthz.go monta — repetido aqui para evitar dependência circular.
+//
+// Name usa rótulos genéricos ("Banco de dados", "Cache", "ACS upstream") em
+// vez de nomes de produto, para reduzir fingerprinting de stack pelo usuário
+// final. Decisão duplicada em handlers/dashboard.go.runHealthChecks.
 type HealthRow struct {
-	Name    string // "Postgres", "Redis", "GenieACS"
+	Name    string
 	Status  string // "ok" | "error" | "skipped"
 	Latency string // "12ms"
 	Error   string

@@ -165,7 +165,7 @@ templ Detail(csrfToken string, in DetailInput) {
 				</section>
 				if len(in.Device.Tags) > 0 {
 					<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
-						<h2 class="mb-3 text-sm font-medium text-sentinel-700">Tags do GenieACS</h2>
+						<h2 class="mb-3 text-sm font-medium text-sentinel-700">Tags do device</h2>
 						<div class="flex flex-wrap gap-2">
 							for _, t := range in.Device.Tags {
 								<span class="rounded-full bg-sentinel-50 px-2 py-0.5 text-xs text-sentinel-700">{ t }</span>

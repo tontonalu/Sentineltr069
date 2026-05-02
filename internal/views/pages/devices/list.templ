@@ -34,10 +34,10 @@ templ List(in ListInput) {
 		<div class="mt-6">
 			@components.Card("") {
 				if len(in.Devices) == 0 {
-					@components.EmptyState("router", "Nenhum device encontrado", "Ajuste os filtros ou aguarde o próximo sync com o GenieACS.")
+					@components.EmptyState("router", "Nenhum device encontrado", "Ajuste os filtros ou aguarde o próximo ciclo de sincronização.")
 				} else {
 					@components.Table(true) {
-						@components.TableHeader([]string{"Status", "Serial / GenieACS ID", "MAC", "Firmware", "IP WAN", "Último inform"})
+						@components.TableHeader([]string{"Status", "Serial / ID", "MAC", "Firmware", "IP WAN", "Último inform"})
 						<tbody>
 							for _, d := range in.Devices {
 								<tr>
@@ -87,7 +87,7 @@ templ filtersBar(in ListInput) {
 	<form method="GET" action="/devices" class="grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
 		<div>
 			<label class="label" for="q">Buscar</label>
-			<input type="search" id="q" name="q" value={ in.Search } placeholder="Serial, MAC ou GenieACS ID" class="input"/>
+			<input type="search" id="q" name="q" value={ in.Search } placeholder="Serial, MAC ou ID" class="input"/>
 		</div>
 		<div>
 			<label class="label" for="pop">POP</label>

@@ -47,15 +47,19 @@ func Healthz(deps HealthDeps) http.HandlerFunc {
 			Checks:  make(map[string]checkResult, 3),
 		}
 
-		resp.Checks["postgres"] = runCheck(ctx, func(ctx context.Context) error {
+		// Chaves intencionalmente genéricas (db/cache/upstream) — /healthz é
+		// público sem auth; expor "postgres"/"redis"/"genieacs" facilita
+		// fingerprinting de stack para reconhecimento. Monitoria interna deve
+		// alertar pelo status, não pelo nome do produto.
+		resp.Checks["db"] = runCheck(ctx, func(ctx context.Context) error {
 			return postgres.Ping(ctx, deps.Postgres)
 		}, deps.Postgres == nil)
 
-		resp.Checks["redis"] = runCheck(ctx, func(ctx context.Context) error {
+		resp.Checks["cache"] = runCheck(ctx, func(ctx context.Context) error {
 			return redis.Ping(ctx, deps.Redis)
 		}, deps.Redis == nil)
 
-		resp.Checks["genieacs"] = runCheck(ctx, func(ctx context.Context) error {
+		resp.Checks["upstream"] = runCheck(ctx, func(ctx context.Context) error {
 			return deps.GenieACS.Ping(ctx)
 		}, deps.GenieACS == nil)
 

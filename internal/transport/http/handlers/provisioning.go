@@ -144,18 +144,20 @@ func (h *ProvisioningHandler) JobDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// "upstream_task_id" em vez de "genieacs_task" — não vaza o produto ACS
+	// para qualquer usuário com permissão provisioning.read.
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id":              job.ID,
-		"device_id":       job.DeviceID,
-		"profile_id":      job.ProfileID,
-		"status":          string(job.Status),
-		"genieacs_task":   job.GenieACSTaskID,
-		"error":           job.ErrorMessage,
-		"retry_count":     job.RetryCount,
-		"scheduled_at":    job.ScheduledAt,
-		"started_at":      job.StartedAt,
-		"finished_at":     job.FinishedAt,
-		"created_at":      job.CreatedAt,
+		"id":               job.ID,
+		"device_id":        job.DeviceID,
+		"profile_id":       job.ProfileID,
+		"status":           string(job.Status),
+		"upstream_task_id": job.GenieACSTaskID,
+		"error":            job.ErrorMessage,
+		"retry_count":      job.RetryCount,
+		"scheduled_at":     job.ScheduledAt,
+		"started_at":       job.StartedAt,
+		"finished_at":      job.FinishedAt,
+		"created_at":       job.CreatedAt,
 	})
 }
 
