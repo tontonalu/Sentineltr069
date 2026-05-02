@@ -42,6 +42,9 @@ services:
     networks: [edge]
 
   app:
+    # Em produção o .env vive em /opt/sentinelacs/config/.env (não em ../.env
+    # como em dev). env_file no override SUBSTITUI o do base — não acumula.
+    env_file: /opt/sentinelacs/config/.env
     expose:
       - "8080"
     ports: !reset []          # remove exposição direta da porta 8080
@@ -61,6 +64,10 @@ services:
       - "traefik.http.middlewares.sec-headers.headers.browserXssFilter=true"
       - "traefik.http.middlewares.sec-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.routers.sentinel.middlewares=sec-headers@docker"
+
+  worker:
+    # Mesmo override de env_file que o app — em prod o .env é absoluto.
+    env_file: /opt/sentinelacs/config/.env
 
   # Postgres/Redis/Mongo herdam do compose base — sem alterações aqui.
   # GenieACS-FS é o único que segue exposto para CPEs (porta 7567).
