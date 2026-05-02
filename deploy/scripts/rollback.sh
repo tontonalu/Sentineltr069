@@ -46,11 +46,13 @@ $COMPOSE pull app worker --quiet
 echo "[rollback] subindo containers (sem migrate down)"
 $COMPOSE up -d --no-deps app worker
 
-# Healthcheck (mais curto — 30s).
+# Healthcheck via docker inspect (HEALTHCHECK do Dockerfile bate dentro
+# do container). Em prod a porta 8080 não é exposta — Traefik no caminho.
 echo -n "[rollback] healthcheck "
 HEALTH_OK=0
 for i in {1..15}; do
-    if curl -fsSL -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz | grep -q '^2'; then
+    HEALTH=$(docker inspect --format='{{.State.Health.Status}}' sentinel-app 2>/dev/null || echo "missing")
+    if [[ "$HEALTH" == "healthy" ]]; then
         HEALTH_OK=1
         break
     fi
