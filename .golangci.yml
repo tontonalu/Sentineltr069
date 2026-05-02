@@ -30,14 +30,15 @@ linters-settings:
       - name: package-comments
         disabled: true   # ativaremos quando os pacotes amadurecerem
   gosec:
+    # NOTA: o gosec embutido no golangci-lint v1.64.x ainda não conhece
+    # G124/G710 (rules mais recentes do gosec standalone). Por isso ficam
+    # apenas excluídos no job dedicado de security (-exclude=...). Aqui
+    # listamos só os códigos que ESTA versão entende.
     excludes:
       - G101   # falso-positivo: mapas de NOMES de envs (não credenciais)
       - G104   # estilístico: resp.Body.Close em paths de erro já tratado
       - G115   # uint32(len(hash)) seguro — argon2 hash tem tamanho fixo
-      - G124   # gosec não detecta cookies com Secure/HttpOnly/SameSite
-               # quando vêm de variáveis (cfg.App.Env == "production")
       - G304   # file inclusion via variable — paths vêm de config validada
-      - G710   # uuid.String() não pode ser tainted; "open redirect" é F.P.
 
 issues:
   exclude-dirs:
