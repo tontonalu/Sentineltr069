@@ -52,7 +52,16 @@
       "Read(//Users/tonto/Documents/GitHub/Sentineltr069/**)",
       "Bash(go run *)",
       "Bash(make assets-vendor *)",
-      "Bash(tailwindcss -i static/css/input.css -o static/css/app.css --minify)"
+      "Bash(tailwindcss -i static/css/input.css -o static/css/app.css --minify)",
+      "Bash(curl -fsSL -o tailwindcss \"https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-macos-arm64\")",
+      "Bash(chmod +x tailwindcss)",
+      "Bash(/tmp/tailwindcss --help)",
+      "Bash(/tmp/tailwindcss -i static/css/input.css -o static/css/app.css --minify)",
+      "Bash(awk '/@media/{count++; print \"---\" count \"---\"; print; getline; print; if\\($0 !~ /^[[:space:]]*$/\\) {getline; print}}' /Users/tonton/Documents/GitHub/Sentineltr069/web/static/css/app.css)",
+      "Bash(rm -f bin/.tailwindcss)",
+      "Bash(make tailwind *)",
+      "Bash(make build *)",
+      "Bash(/Users/tonton/Documents/GitHub/Sentineltr069/bin/server --help)"
     ]
   }
 }

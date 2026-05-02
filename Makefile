@@ -12,7 +12,15 @@ GO           := go
 TEMPL        := go run github.com/a-h/templ/cmd/templ@latest
 GOOSE        := go run github.com/pressly/goose/v3/cmd/goose@latest
 SQLC         := go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest
-TAILWIND     := tailwindcss
+
+# Tailwind standalone — versão pinada (mesma do Dockerfile). Cacheado em
+# bin/.tailwindcss para evitar baixar a cada build. Detecta arch automaticamente.
+TAILWIND_VERSION := v3.4.17
+# Releases tailwindlabs usam "macos" (não "darwin") e "x64"/"arm64".
+TAILWIND_OS   := $(shell uname -s | sed -e 's/Darwin/macos/' -e 's/Linux/linux/')
+TAILWIND_ARCH := $(shell uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')
+TAILWIND_BIN := bin/.tailwindcss
+TAILWIND := $(TAILWIND_BIN)
 
 DB_URL ?= $(DATABASE_URL)
 
@@ -71,13 +79,21 @@ assets-vendor: ## Baixa htmx.min.js + alpine.min.js para web/static/js/ (versõe
 		curl -fsSL -o web/static/js/alpine.min.js "https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"; \
 	fi
 
+# Baixa o tailwindcss standalone (mesma versão do Dockerfile) só na primeira vez.
+# Sem isso, devs precisariam instalar Node + npm pra rodar `make tailwind`.
+$(TAILWIND_BIN):
+	@mkdir -p bin
+	@echo "→ baixando tailwindcss $(TAILWIND_VERSION) ($(TAILWIND_OS)-$(TAILWIND_ARCH))"
+	@curl -fsSL -o $@ "https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$(TAILWIND_OS)-$(TAILWIND_ARCH)"
+	@chmod +x $@
+
 .PHONY: tailwind
-tailwind: assets-vendor ## Build CSS uma vez (production) + garante JS vendored
-	cd web && $(TAILWIND) -i static/css/input.css -o static/css/app.css --minify
+tailwind: assets-vendor $(TAILWIND_BIN) ## Build CSS uma vez (production) + garante JS vendored
+	cd web && ../$(TAILWIND) -i static/css/input.css -o static/css/app.css --minify
 
 .PHONY: tailwind-watch
-tailwind-watch: assets-vendor ## Build CSS em modo watch (dev paralelo)
-	cd web && $(TAILWIND) -i static/css/input.css -o static/css/app.css --watch
+tailwind-watch: assets-vendor $(TAILWIND_BIN) ## Build CSS em modo watch (dev paralelo)
+	cd web && ../$(TAILWIND) -i static/css/input.css -o static/css/app.css --watch
 
 # ──────────────── Migrations ────────────────
 .PHONY: migrate-up
