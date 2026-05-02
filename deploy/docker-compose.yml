@@ -73,55 +73,29 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ──────────────── GenieACS (CWMP/TR-069) ────────────────
-  # Stack oficial: 3 processos (cwmp, nbi, fs) compartilhando o mesmo Mongo.
-  genieacs-cwmp:
+  # ──────────────── GenieACS (CWMP/NBI/FS/UI em um container) ────────────────
+  # A imagem drumsergio/genieacs:1.2.16+ usa supervisord para rodar os 4
+  # processos juntos (cwmp, nbi, fs, ui), em vez de containers separados.
+  # Tentar override com command=genieacs-nbi quebra: o entrypoint default
+  # invoca supervisord, e os binários estão em /opt/genieacs/dist/bin/.
+  genieacs:
     image: drumsergio/genieacs:1.2.16.1
-    container_name: sentinel-genieacs-cwmp
-    command: ["genieacs-cwmp"]
+    container_name: sentinel-genieacs
     environment:
       GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
       GENIEACS_CWMP_PORT: 7547
-      GENIEACS_LOG_FILE: /var/log/genieacs/cwmp.log
-      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/cwmp-access.log
-    depends_on:
-      mongo: { condition: service_healthy }
-    networks: [internal]
-    ports:
-      - "7547:7547"             # CWMP — público para CPEs
-    restart: unless-stopped
-
-  genieacs-nbi:
-    image: drumsergio/genieacs:1.2.16.1
-    container_name: sentinel-genieacs-nbi
-    command: ["genieacs-nbi"]
-    environment:
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
       GENIEACS_NBI_PORT: 7557
-      GENIEACS_LOG_FILE: /var/log/genieacs/nbi.log
-      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/nbi-access.log
-    depends_on:
-      mongo: { condition: service_healthy }
-    networks: [internal]
-    # NBI NUNCA exposto publicamente — apenas dentro da rede docker.
-    restart: unless-stopped
-
-  genieacs-fs:
-    image: drumsergio/genieacs:1.2.16.1
-    container_name: sentinel-genieacs-fs
-    command: ["genieacs-fs"]
-    environment:
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
       GENIEACS_FS_PORT: 7567
-      GENIEACS_LOG_FILE: /var/log/genieacs/fs.log
-      GENIEACS_ACCESS_LOG_FILE: /var/log/genieacs/fs-access.log
+      GENIEACS_UI_PORT: 3000
     depends_on:
       mongo: { condition: service_healthy }
     networks: [internal]
     volumes:
       - genieacs_files:/opt/genieacs/files
     ports:
+      - "7547:7547"             # CWMP — público para CPEs (TR-069)
       - "7567:7567"             # FS — público para CPEs baixarem firmware
+      # 7557 (NBI) e 3000 (UI) NÃO expostos — só rede docker interna.
     restart: unless-stopped
 
   # ──────────────── SentinelACS — app web ────────────────
@@ -136,7 +110,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
-      genieacs-nbi: { condition: service_started }
+      genieacs: { condition: service_started }
     networks: [internal]
     ports:
       - "8080:8080"
@@ -154,6 +128,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
-      genieacs-nbi: { condition: service_started }
+      genieacs: { condition: service_started }
     networks: [internal]
     restart: unless-stopped

@@ -72,8 +72,8 @@ REDIS_PASSWORD=$REDIS_PASSWORD
 REDIS_URL=redis://default:$REDIS_PASSWORD@redis:6379/0
 
 # ──────── GenieACS NBI (interno na rede docker) ────────
-GENIEACS_NBI_URL=http://genieacs-nbi:7557
-GENIEACS_FS_URL=http://genieacs-fs:7567
+GENIEACS_NBI_URL=http://genieacs:7557
+GENIEACS_FS_URL=http://genieacs:7567
 GENIEACS_AUTH_USER=
 GENIEACS_AUTH_PASS=
 
