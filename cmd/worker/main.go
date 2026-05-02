@@ -3,13 +3,11 @@
 // Roles atuais:
 //   - Sync periódico com GenieACS NBI (CP-2.4)
 //   - Sync periódico com ERP Voalle (Fase 2.5)
-//
-// Próximos roles (Fases 4-5):
-//   - Telemetry collector (CP-4.3)
-//   - Alert engine evaluator (CP-5.3)
-//
-// Já implementados:
 //   - Provisioning queue consumer (CP-3.5) — Redis Stream + polling fallback
+//   - Telemetry collector (CP-4.3) — coleta a cada 5 min em chunks paralelos
+//
+// Próximos roles (Fase 5):
+//   - Alert engine evaluator (CP-5.3)
 package main
 
 import (
@@ -27,6 +25,7 @@ import (
 	appintegration "github.com/celinet/sentinel-acs/internal/application/integration"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
+	teleapp "github.com/celinet/sentinel-acs/internal/application/telemetry"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/erp"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
 	pgdb "github.com/celinet/sentinel-acs/internal/infrastructure/postgres"
@@ -52,6 +51,10 @@ const (
 	provisioningPollInterval = 30 * time.Second
 	provisioningJobTimeout   = 90 * time.Second
 	provisioningBatchSize    = 10
+
+	// Telemetry collector: tick a cada 5 min (alinhado com §10.1 do doc).
+	telemetryTickInterval = 5 * time.Minute
+	telemetryTickTimeout  = 4 * time.Minute
 )
 
 func main() {
@@ -95,6 +98,7 @@ func run() error {
 	modelRepo := pgdb.NewDeviceModelRepo(pgPool)
 	jobRepo := pgdb.NewJobRepo(pgPool)
 	batchRepo := pgdb.NewBatchRepo(pgPool)
+	telemetryRepo := pgdb.NewTelemetryRepo(pgPool)
 
 	syncSvc := appinventory.NewSyncService(
 		deviceRepo, customerRepo, vendorRepo, modelRepo,
@@ -103,6 +107,15 @@ func run() error {
 
 	// Provisioning executor: consome jobs queued e empurra para o NBI.
 	executor := provapp.NewExecutor(jobRepo, batchRepo, &deviceResolver{repo: deviceRepo}, genieClient)
+
+	// Telemetry collector: amostra devices online a cada 5 min e grava
+	// nas hypertables. Usa cache do GenieACS (snapshot do último inform).
+	collector := teleapp.NewCollector(deviceRepo, genieClient, telemetryRepo, teleapp.CollectorOptions{
+		ChunkSize:        200,
+		Parallel:         5,
+		PerDeviceTimeout: 10 * time.Second,
+		OnlineThreshold:  offlineThreshold,
+	})
 
 	tracker := appintegration.NewStatusTracker()
 
@@ -131,6 +144,9 @@ func run() error {
 	// Tickers
 	genieTicker := time.NewTicker(syncInterval)
 	defer genieTicker.Stop()
+
+	telemetryTicker := time.NewTicker(telemetryTickInterval)
+	defer telemetryTicker.Stop()
 
 	// Voalle ticker — só ligamos se o plugin foi instanciado.
 	var voalleTicker *time.Ticker
@@ -168,6 +184,8 @@ func run() error {
 			runGenie(rootCtx, syncSvc, log)
 		case <-tickC(voalleTicker):
 			runVoalle(rootCtx, voalleSync, log)
+		case <-telemetryTicker.C:
+			runTelemetry(rootCtx, collector, log)
 		case sig := <-stop:
 			log.Info("shutdown signal received", "signal", sig.String())
 			cancel()
@@ -298,4 +316,28 @@ func runVoalle(ctx context.Context, svc *appintegration.ERPSyncService, log *slo
 		}
 		log.Error("voalle sync failed", "err", err)
 	}
+}
+
+func runTelemetry(ctx context.Context, c *teleapp.Collector, log *slog.Logger) {
+	if c == nil {
+		return
+	}
+	tCtx, cancel := context.WithTimeout(ctx, telemetryTickTimeout)
+	defer cancel()
+	res, err := c.Tick(tCtx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Error("telemetry tick failed", "err", err)
+		return
+	}
+	log.Info("telemetry tick",
+		"devices", res.Devices,
+		"wifi_samples", res.WifiSamples,
+		"wan_samples", res.WanSamples,
+		"system_samples", res.SystemSamples,
+		"errors", res.Errors,
+		"duration", res.Duration.String(),
+	)
 }

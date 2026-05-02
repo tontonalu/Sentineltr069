@@ -204,15 +204,19 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 
 **Objetivo:** dashboards históricos por device e POP.
 
-- [ ] **CP-4.1** — Hypertables `telemetry_wifi`, `telemetry_wan`, `telemetry_system` criadas + retention policies
-- [ ] **CP-4.2** — Continuous aggregates `_hourly` rodando
-- [ ] **CP-4.3** — Worker `telemetry-collector` (cron 5 min) faz Refresh em chunks de 200, 5 paralelos
-- [ ] **CP-4.4** — Insert em hypertables após task done
-- [ ] **CP-4.5** — `/devices/{id}` ganha aba "Histórico" com Chart.js (24h, 7d, 30d)
-- [ ] **CP-4.6** — `/pops/{id}` mostra agregados (devices online, clientes Wi-Fi totais por banda, sinal óptico médio)
-- [ ] **CP-4.7** — Coleta validada: 1.000 devices em <5 min sem perder janela
+- [x] **CP-4.1** — Hypertables `telemetry_wifi`, `telemetry_wan`, `telemetry_system` + retention policies (90d/180d/30d) + compressão segmentada por `device_id` (`migrations/00004_init_telemetry.sql`)
+- [x] **CP-4.2** — Continuous aggregates `telemetry_*_hourly` com `add_continuous_aggregate_policy` (refresh a cada 30 min, janela 1h-3h offset)
+- [x] **CP-4.3** — Worker `telemetry-collector` em chunks de 200 com 5 goroutines paralelas (`internal/application/telemetry/collector.go`); usa **soft refresh** via `GetDevice` (cache 30s) em vez de `Refresh` ativo — ver nota abaixo
+- [x] **CP-4.4** — Parser canônico (`parser.go`) com fallback TR-098/TR-181 + virtual params preferidos (`VirtualParameters.WiFi24G_*` etc.); 6 testes em `parser_test.go`; insert via `pgx.CopyFrom` para volume
+- [x] **CP-4.5** — `/devices/{id}/history?range=24h|7d|30d` renderiza **gráfico SVG inline** server-rendered (ver nota abaixo). Sumário 24h: clientes atual/média, uptime, CPU/Mem
+- [ ] **CP-4.6** — `/pops/{id}` com agregados (devices online, clientes Wi-Fi totais, sinal médio) — **pendente**, depende de UI de POPs (ainda não temos handler `/pops`)
+- [ ] **CP-4.7** — Coleta validada: 1.000 devices em <5 min — **pendente, aguardando GenieACS de homologação**
 
-**Definition of Done:** gráfico de clientes conectados das últimas 24h por device.
+**Nota — Soft Refresh vs Active Refresh:** o doc original (§10.1) prevê `Refresh` em chunks com poll de task. Optei por **soft refresh** (lê snapshot do último inform via `GetDevice`) porque (1) é dramaticamente mais simples, (2) reusa o cache Redis 30s já existente, (3) granularidade efetiva de 5 min é alcançada porque CPEs informam regularmente. Active refresh fica como upgrade opcional via flag, depois que virtual params canônicos forem deployed (Pré-req-A).
+
+**Nota — SVG inline vs Chart.js:** descartei Chart.js (~250 KB) em favor de SVG server-rendered (`history_helpers.go` gera os atributos `points` da `<polyline>`). Razões: (1) zero dependência de arquivos JS no `/static/`, (2) coerente com filosofia "binário compilado, sem arquivos soltos no servidor", (3) suficiente para os gráficos de linha duplos do MVP. Se interatividade rica (zoom, tooltips móveis) virar requisito, vale revisitar.
+
+**Definition of Done parcial:** gráfico de clientes conectados das últimas 24h funcional via UI; falta CP-4.6 (POP) e validação de carga.
 
 ---
 
@@ -327,7 +331,8 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 | **2 — Inventário & GenieACS** | **7/9** | — | CP-2.3, 2.9 (deps Pré-req-A) |
 | **2.5 — Voalle Read-Only** | **6.5/7** | CP-2.5.7 (histórico de runs na UI) | — |
 | **3 — Templates & Provisionamento** | **8/10** | — | CP-3.9 (SSE), CP-3.10 (carga — dep Pré-req-A) |
-| **4-9** | — | — | tudo |
+| **4 — Telemetria & Dashboards** | **5/7** | — | CP-4.6 (UI POPs), CP-4.7 (carga — dep Pré-req-A) |
+| **5-9** | — | — | tudo |
 
 **Próximas ações sugeridas (em ordem):**
 
@@ -348,8 +353,10 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 4. **CP-3.6 e-2-e** — testar trocar SSID em 1 CPE real → validar `connection_request` + `setParameterValues` (depende de Pré-req-A)
 5. **CP-3.9 SSE** — `GET /provisioning/batches/{id}/events` empurra updates conforme `RecountFromJobs` muda contadores; UI pode atualizar barra de progresso sem polling
 6. **CP-3.10 carga** — script `loadtest/` com 1.000 jobs → métricas de tempo + sem travar UI
-7. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
-8. Avançar para **Fase 4** — Telemetria & Dashboards
+7. **CP-4.6 — UI POPs** — handler `/pops/{id}` com tabela agregada (devices online por POP, somatório de clientes Wi-Fi por banda, sinal óptico médio). Reusa `TelemetryRepo` com filtro por POP
+8. **CP-4.7 — carga telemetria** — script gera 1k devices online no GenieACS de homologação; medir duração do tick + samples gravados
+9. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
+10. Avançar para **Fase 5** — Alertas & Notificações
 
 ---
 

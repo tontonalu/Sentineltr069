@@ -36,7 +36,10 @@ templ Detail(csrfToken string, in DetailInput) {
 					<h1 class="text-2xl font-semibold text-sentinel-900">{ deviceTitle(in.Device) }</h1>
 					<p class="text-sm text-sentinel-500">{ in.Device.GenieACSID }</p>
 				</div>
-				<a href="/devices" class="btn-ghost">← Voltar</a>
+				<div class="flex items-center gap-2">
+					<a href={ templ.URL("/devices/" + in.Device.ID.String() + "/history") } class="btn-ghost">Histórico</a>
+					<a href="/devices" class="btn-ghost">← Voltar</a>
+				</div>
 			</div>
 
 			@deviceActions(csrfToken, in)

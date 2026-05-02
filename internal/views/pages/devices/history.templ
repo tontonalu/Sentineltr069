@@ -1,0 +1,190 @@
+package devices
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	tele "github.com/celinet/sentinel-acs/internal/domain/telemetry"
+)
+
+// HistoryInput agrega todos os dados que a página de histórico precisa.
+// Pré-carregado pelo handler — templ não faz queries.
+type HistoryInput struct {
+	Device       domain.Device
+	Range        string  // "24h" | "7d" | "30d"
+	WifiSeries   []SeriesPoint
+	WifiSeries5G []SeriesPoint
+	WanRxSeries  []SeriesPoint
+	WanTxSeries  []SeriesPoint
+	CPUSeries    []SeriesPoint
+	MemSeries    []SeriesPoint
+
+	// Sumário rápido — última amostra e média.
+	Summary HistorySummary
+}
+
+// SeriesPoint — par (epoch ms, valor). Mantido como float64 para SVG fácil.
+type SeriesPoint struct {
+	X int64   // epoch millis (UTC)
+	Y float64
+}
+
+type HistorySummary struct {
+	LastClients24h *int
+	AvgClients24h  *int
+	LastUptime     *int64
+	LastCPU        *float64
+	LastMem        *float64
+}
+
+templ History(in HistoryInput) {
+	@layouts.Base("Histórico — " + deviceTitle(in.Device)) {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold text-sentinel-900">Histórico — { deviceTitle(in.Device) }</h1>
+					<p class="text-sm text-sentinel-500">{ in.Device.GenieACSID }</p>
+				</div>
+				<div class="flex items-center gap-3">
+					<a href={ templ.URL("/devices/" + in.Device.ID.String()) } class="btn-ghost">← Detalhe</a>
+					@rangeSelector(in.Device.ID.String(), in.Range)
+				</div>
+			</div>
+
+			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+				@summaryCard(in.Summary)
+
+				<section class="rounded-lg bg-white p-6 shadow">
+					<h2 class="mb-3 text-lg font-medium text-sentinel-900">Clientes Wi-Fi conectados</h2>
+					if len(in.WifiSeries) == 0 && len(in.WifiSeries5G) == 0 {
+						<p class="text-sm text-sentinel-500">Sem dados na janela selecionada.</p>
+					} else {
+						<div class="flex items-center gap-4 text-xs text-sentinel-500 mb-2">
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-blue-500"></span> 2.4 GHz
+							</span>
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-emerald-500"></span> 5 GHz
+							</span>
+						</div>
+						@dualLineSVG(in.WifiSeries, in.WifiSeries5G, "#3B82F6", "#10B981")
+					}
+				</section>
+
+				<section class="rounded-lg bg-white p-6 shadow">
+					<h2 class="mb-3 text-lg font-medium text-sentinel-900">CPU & Memória (%)</h2>
+					if len(in.CPUSeries) == 0 && len(in.MemSeries) == 0 {
+						<p class="text-sm text-sentinel-500">Sem dados na janela selecionada.</p>
+					} else {
+						<div class="flex items-center gap-4 text-xs text-sentinel-500 mb-2">
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-rose-500"></span> CPU
+							</span>
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-amber-500"></span> Memória
+							</span>
+						</div>
+						@dualLineSVG(in.CPUSeries, in.MemSeries, "#F43F5E", "#F59E0B")
+					}
+				</section>
+
+				<section class="rounded-lg bg-white p-6 shadow">
+					<h2 class="mb-3 text-lg font-medium text-sentinel-900">Tráfego WAN (bytes)</h2>
+					if len(in.WanRxSeries) == 0 && len(in.WanTxSeries) == 0 {
+						<p class="text-sm text-sentinel-500">Sem dados na janela selecionada.</p>
+					} else {
+						<div class="flex items-center gap-4 text-xs text-sentinel-500 mb-2">
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-indigo-500"></span> RX (download)
+							</span>
+							<span class="inline-flex items-center gap-1">
+								<span class="inline-block h-2 w-3 rounded bg-orange-500"></span> TX (upload)
+							</span>
+						</div>
+						@dualLineSVG(in.WanRxSeries, in.WanTxSeries, "#6366F1", "#F97316")
+					}
+				</section>
+			</div>
+		</div>
+	}
+}
+
+// rangeSelector — pílulas para 24h/7d/30d.
+templ rangeSelector(deviceID, current string) {
+	<div class="inline-flex rounded-lg border border-sentinel-200 bg-white text-sm">
+		@rangePill(deviceID, "24h", current)
+		@rangePill(deviceID, "7d", current)
+		@rangePill(deviceID, "30d", current)
+	</div>
+}
+
+templ rangePill(deviceID, value, current string) {
+	if value == current {
+		<a href={ templ.URL("/devices/" + deviceID + "/history?range=" + value) } class="px-3 py-1.5 bg-sentinel-900 text-white">{ value }</a>
+	} else {
+		<a href={ templ.URL("/devices/" + deviceID + "/history?range=" + value) } class="px-3 py-1.5 text-sentinel-700 hover:bg-sentinel-50">{ value }</a>
+	}
+}
+
+templ summaryCard(s HistorySummary) {
+	<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
+		<h2 class="mb-4 text-lg font-medium text-sentinel-900">Resumo (24h)</h2>
+		<div class="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+			<div>
+				<dt class="text-sentinel-500">Clientes Wi-Fi (atual)</dt>
+				<dd class="mt-1 text-2xl font-semibold text-sentinel-900">
+					if s.LastClients24h != nil {
+						{ strconv.Itoa(*s.LastClients24h) }
+					} else {
+						—
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-sentinel-500">Média 24h</dt>
+				<dd class="mt-1 text-2xl font-semibold text-sentinel-900">
+					if s.AvgClients24h != nil {
+						{ strconv.Itoa(*s.AvgClients24h) }
+					} else {
+						—
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-sentinel-500">Uptime</dt>
+				<dd class="mt-1 text-sm font-mono text-sentinel-900">
+					if s.LastUptime != nil {
+						{ formatUptime(*s.LastUptime) }
+					} else {
+						—
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-sentinel-500">CPU / Mem</dt>
+				<dd class="mt-1 text-sm font-mono text-sentinel-900">
+					{ formatCPUMem(s.LastCPU, s.LastMem) }
+				</dd>
+			</div>
+		</div>
+	</section>
+}
+
+// dualLineSVG renderiza dois line plots sobrepostos. Coordenadas 0..900 x 0..240.
+// Self-contained, sem JS — atende RNF de "sem dependências externas".
+templ dualLineSVG(a, b []SeriesPoint, colorA, colorB string) {
+	<svg viewBox="0 0 900 240" preserveAspectRatio="none" class="w-full h-48 bg-sentinel-50 rounded">
+		<g stroke="#E5E7EB" stroke-width="1">
+			<line x1="0"   y1="60"  x2="900" y2="60"/>
+			<line x1="0"   y1="120" x2="900" y2="120"/>
+			<line x1="0"   y1="180" x2="900" y2="180"/>
+		</g>
+		if len(a) > 0 {
+			<polyline fill="none" stroke={ colorA } stroke-width="2" points={ buildPolyline(a, b) }/>
+		}
+		if len(b) > 0 {
+			<polyline fill="none" stroke={ colorB } stroke-width="2" points={ buildPolylineB(a, b) }/>
+		}
+	</svg>
+}

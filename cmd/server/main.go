@@ -190,6 +190,14 @@ func run() error {
 		Devices: deviceRepo,
 	}
 
+	// Telemetria — repo Postgres (TimescaleDB hypertables).
+	var telemetryRepo *pgdb.TelemetryRepo
+	var historyH *handlers.HistoryHandler
+	if pgPool != nil {
+		telemetryRepo = pgdb.NewTelemetryRepo(pgPool)
+		historyH = &handlers.HistoryHandler{Devices: deviceRepo, Telemetry: telemetryRepo}
+	}
+
 	// Integrações — server só mostra status/config; sync acontece no worker.
 	enabledPlugins := map[string]handlers.EnabledPlugin{}
 	if cfg.Voalle.Enabled() {
@@ -289,6 +297,12 @@ func run() error {
 			r.Use(mw.RequirePermission("device", "read"))
 			r.Get("/", devicesH.List)
 			r.Get("/{id}", devicesH.Detail)
+
+			// Histórico — exige telemetry.read.
+			if historyH != nil {
+				r.With(mw.RequirePermission("telemetry", "read")).
+					Get("/{id}/history", historyH.History)
+			}
 
 			// Ações — exigem permissões específicas.
 			r.With(mw.RequirePermission("device", "connection_req")).
