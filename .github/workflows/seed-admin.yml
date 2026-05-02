@@ -1,0 +1,67 @@
+name: Seed admin
+
+# Cria/recria o usuário admin via migrate -cmd seed.
+# Útil quando você esqueceu a senha do admin original e precisa gerar
+# uma nova senha provisória (usuário antigo continua existindo no DB).
+#
+# A senha aparece nos logs do workflow — deletar/restringir o run depois.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-admin
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ vars.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run seed
+        env:
+          SSH_HOST:    ${{ vars.SSH_HOST }}
+          SSH_USER:    ${{ vars.SSH_USER }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+        run: |
+          ADMIN_PWD=$(openssl rand -base64 18 | tr -d '+/=' | tr '[:upper:]' '[:lower:]' | head -c 24)
+          ADMIN_EMAIL="${ADMIN_EMAIL:-admin@local}"
+
+          echo "::add-mask::$ADMIN_PWD"
+
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -u sentinel docker compose --env-file /opt/sentinelacs/config/.env \
+                -f /opt/sentinelacs/docker-compose.yml \
+                -f /opt/sentinelacs/docker-compose.prod.yml \
+                run --rm \
+                  -e SEED_ADMIN_EMAIL='$ADMIN_EMAIL' \
+                  -e SEED_ADMIN_PASSWORD='$ADMIN_PWD' \
+                  -e SEED_ADMIN_NAME='Administrador' \
+                  --entrypoint /usr/local/bin/migrate \
+                  app -cmd seed"
+
+          {
+            echo "## 🔑 Senha provisória"
+            echo ""
+            echo "| email | senha |"
+            echo "|---|---|"
+            echo "| \`$ADMIN_EMAIL\` | \`$ADMIN_PWD\` |"
+            echo ""
+            echo "⚠️ **Delete este run** após usar (Settings → Actions → Workflow runs)."
+          } >> "$GITHUB_STEP_SUMMARY"

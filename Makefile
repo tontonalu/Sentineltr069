@@ -112,9 +112,47 @@ docker-build: ## Build da imagem
 	docker build -f deploy/Dockerfile -t sentinel-acs:local .
 
 .PHONY: deploy-prod
-deploy-prod: ## Sobe stack de produção (no servidor da empresa)
-	$(COMPOSE_PROD) pull
-	$(COMPOSE_PROD) up -d
+deploy-prod: ## Sobe stack de produção LOCALMENTE no servidor (use com cuidado)
+	docker compose --env-file /opt/sentinelacs/config/.env \
+		-f /opt/sentinelacs/docker-compose.yml \
+		-f /opt/sentinelacs/docker-compose.prod.yml \
+		pull
+	docker compose --env-file /opt/sentinelacs/config/.env \
+		-f /opt/sentinelacs/docker-compose.yml \
+		-f /opt/sentinelacs/docker-compose.prod.yml \
+		up -d
+
+# ──────────────── Remoto (rodar do workstation) ────────────────
+SSH_HOST ?= 177.72.177.102
+SSH_USER ?= celinet
+
+.PHONY: bootstrap-remote
+bootstrap-remote: ## SCP+SSH bootstrap.sh no servidor (1ª vez). Requer SSH key já instalada.
+	scp deploy/scripts/bootstrap.sh $(SSH_USER)@$(SSH_HOST):/tmp/
+	ssh -t $(SSH_USER)@$(SSH_HOST) 'sudo bash /tmp/bootstrap.sh'
+
+.PHONY: deploy-remote
+deploy-remote: ## Trigger deploy via SSH no servidor (sem GitHub Actions). Usa imagem latest.
+	rsync -az --delete deploy/docker-compose.yml deploy/docker-compose.prod.yml \
+		$(SSH_USER)@$(SSH_HOST):/opt/sentinelacs/
+	rsync -az --delete deploy/scripts/ \
+		$(SSH_USER)@$(SSH_HOST):/opt/sentinelacs/scripts/
+	ssh $(SSH_USER)@$(SSH_HOST) \
+		'sudo chown -R sentinel:sentinel /opt/sentinelacs/scripts /opt/sentinelacs/*.yml && \
+		 sudo chmod +x /opt/sentinelacs/scripts/*.sh && \
+		 sudo -u sentinel /opt/sentinelacs/scripts/deploy.sh'
+
+.PHONY: ssh
+ssh: ## ssh interativo no servidor
+	ssh $(SSH_USER)@$(SSH_HOST)
+
+.PHONY: logs-remote
+logs-remote: ## tail dos logs da app + worker no servidor
+	ssh $(SSH_USER)@$(SSH_HOST) \
+		'sudo docker compose --env-file /opt/sentinelacs/config/.env \
+			-f /opt/sentinelacs/docker-compose.yml \
+			-f /opt/sentinelacs/docker-compose.prod.yml \
+			logs -f --tail=100 app worker'
 
 # ──────────────── Limpeza ────────────────
 .PHONY: clean

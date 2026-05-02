@@ -1,0 +1,264 @@
+name: Provision (1ª vez)
+
+# Bootstrap completo de um servidor Debian 13 limpo via GitHub Actions.
+#
+# RODA 1× (workflow_dispatch). Sequência:
+#   1. Usa BOOTSTRAP_SSH_PASSWORD via sshpass para ENTRAR pela 1ª vez.
+#   2. Instala SSH_PUBLIC_KEY no authorized_keys do servidor.
+#   3. Re-conecta via SSH key (sem mais senha).
+#   4. Sincroniza scripts + compose files para /opt/sentinelacs/.
+#   5. Roda bootstrap.sh (Docker, ufw, fail2ban, hardening — DESLIGA senha).
+#   6. Roda init-secrets.sh não-interativo (gera .env com secrets aleatórios).
+#   7. Login GHCR usando GHCR_PAT.
+#   8. Roda deploy.sh (pull + migrate + up + healthcheck).
+#   9. Seed do admin inicial → imprime senha provisória nos logs do workflow.
+#
+# DEPOIS DE RODAR 1×:
+#   • REMOVA o secret BOOTSTRAP_SSH_PASSWORD (já não é usado)
+#   • Troque a senha do celinet no servidor (passwd celinet) — defesa extra
+#   • Use deploy.yml para deploys subsequentes (auto após CI verde)
+#
+# ⚠️  Os logs do workflow (incluindo senha provisória do admin) ficam em
+#    GitHub Actions — protegidos por permissão de repo, mas qualquer um
+#    com acesso de leitura ao repo pode ver. Considere repo privado.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed_admin:
+        description: "Criar usuário admin inicial?"
+        type: boolean
+        default: true
+      reset_secrets:
+        description: "Sobrescrever .env existente? (perigoso — perde sessões)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provision-production
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          BOOTSTRAP_SSH_PASSWORD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_KEY:         ${{ secrets.SSH_KEY }}
+          SSH_PUBLIC_KEY:  ${{ secrets.SSH_PUBLIC_KEY }}
+          GHCR_PAT:        ${{ secrets.GHCR_PAT }}
+          SSH_HOST:        ${{ vars.SSH_HOST }}
+          SSH_USER:        ${{ vars.SSH_USER }}
+          PUBLIC_HOST:     ${{ vars.PUBLIC_HOST }}
+          ACME_EMAIL:      ${{ vars.ACME_EMAIL }}
+          GHCR_OWNER:      ${{ vars.GHCR_OWNER }}
+        run: |
+          set -e
+          missing=0
+          for v in BOOTSTRAP_SSH_PASSWORD SSH_KEY SSH_PUBLIC_KEY GHCR_PAT SSH_HOST SSH_USER PUBLIC_HOST ACME_EMAIL GHCR_OWNER; do
+            if [[ -z "${!v}" ]]; then
+              echo "::error::secret/var '$v' está vazio"
+              missing=1
+            fi
+          done
+          [[ $missing -eq 0 ]] || exit 1
+
+      - name: Install sshpass + rsync
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass rsync
+
+      - name: Bootstrap step 1 — instalar SSH key (uso ÚNICO de senha)
+        env:
+          SSHPASS:        ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          SSH_HOST:       ${{ vars.SSH_HOST }}
+          SSH_USER:       ${{ vars.SSH_USER }}
+        run: |
+          # Coleta host key (TOFU — primeira vez, aceita).
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Idempotente: append apenas se a key ainda não está em authorized_keys.
+          # NÃO sobrescreve — preserva chaves manuais que o operador tenha adicionado.
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" \
+            "set -e; \
+             mkdir -p ~/.ssh && chmod 700 ~/.ssh; \
+             touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys; \
+             grep -qxF \"$SSH_PUBLIC_KEY\" ~/.ssh/authorized_keys || \
+             echo \"$SSH_PUBLIC_KEY\" >> ~/.ssh/authorized_keys"
+
+          echo "✓ SSH key instalada — sshpass não será mais usado"
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Validar key auth funciona
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" 'echo "key auth OK como $(whoami)@$(hostname)"'
+
+      - name: Sync compose files + scripts (1ª vez — usa senha pra sudo mkdir)
+        env:
+          BOOTSTRAP_PWD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_HOST:      ${{ vars.SSH_HOST }}
+          SSH_USER:      ${{ vars.SSH_USER }}
+        run: |
+          # Antes do bootstrap, NÃO há sudoers configurado pra celinet sem
+          # senha. Então o primeiro mkdir/chown precisa de sudo -S.
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -S -p '' bash -c 'mkdir -p /opt/sentinelacs/scripts && chown -R $SSH_USER:$SSH_USER /opt/sentinelacs'" \
+            <<< "$BOOTSTRAP_PWD"
+
+          rsync -az --delete \
+            deploy/docker-compose.yml \
+            deploy/docker-compose.prod.yml \
+            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/"
+
+          rsync -az --delete \
+            deploy/scripts/ \
+            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/scripts/"
+
+          ssh "$SSH_USER@$SSH_HOST" 'chmod +x /opt/sentinelacs/scripts/*.sh'
+
+      - name: Run bootstrap.sh (instala Docker, configura sudoers NOPASSWD)
+        env:
+          BOOTSTRAP_PWD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_HOST:      ${{ vars.SSH_HOST }}
+          SSH_USER:      ${{ vars.SSH_USER }}
+        run: |
+          # Última vez que usamos a senha — bootstrap configura sudoers NOPASSWD
+          # para celinet daqui em diante.
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -S -p '' bash /opt/sentinelacs/scripts/bootstrap.sh" \
+            <<< "$BOOTSTRAP_PWD"
+
+      - name: Re-sync depois do bootstrap (sentinel user existe agora)
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          # NOPASSWD já configurado — sudo sem senha funciona daqui.
+          ssh "$SSH_USER@$SSH_HOST" \
+            'sudo chown -R sentinel:sentinel /opt/sentinelacs/scripts /opt/sentinelacs/*.yml'
+
+      - name: Optional reset of existing .env
+        if: ${{ inputs.reset_secrets }}
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          echo "::warning::Removendo /opt/sentinelacs/config/.env existente"
+          ssh "$SSH_USER@$SSH_HOST" 'sudo rm -f /opt/sentinelacs/config/.env'
+
+      - name: Init secrets (não-interativo)
+        env:
+          SSH_HOST:    ${{ vars.SSH_HOST }}
+          SSH_USER:    ${{ vars.SSH_USER }}
+          PUBLIC_HOST: ${{ vars.PUBLIC_HOST }}
+          ACME_EMAIL:  ${{ vars.ACME_EMAIL }}
+          GHCR_OWNER:  ${{ vars.GHCR_OWNER }}
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -u sentinel env \
+                NONINTERACTIVE=1 \
+                PUBLIC_HOST='$PUBLIC_HOST' \
+                ACME_EMAIL='$ACME_EMAIL' \
+                GHCR_OWNER='$GHCR_OWNER' \
+              /opt/sentinelacs/scripts/init-secrets.sh"
+
+      - name: Login GHCR no servidor
+        env:
+          SSH_HOST:   ${{ vars.SSH_HOST }}
+          SSH_USER:   ${{ vars.SSH_USER }}
+          GHCR_PAT:   ${{ secrets.GHCR_PAT }}
+          GHCR_OWNER: ${{ vars.GHCR_OWNER }}
+        run: |
+          # Stdin do PAT — não fica em ps/history.
+          ssh "$SSH_USER@$SSH_HOST" \
+            "echo '$GHCR_PAT' | sudo -u sentinel docker login ghcr.io -u '$GHCR_OWNER' --password-stdin"
+
+      - name: Deploy inicial
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" \
+            'sudo -u sentinel /opt/sentinelacs/scripts/deploy.sh latest'
+
+      - name: Seed admin inicial
+        if: ${{ inputs.seed_admin }}
+        env:
+          SSH_HOST:    ${{ vars.SSH_HOST }}
+          SSH_USER:    ${{ vars.SSH_USER }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+        run: |
+          # Gera senha provisória de 24 chars (3 segmentos base32 separados por hífen).
+          ADMIN_PWD=$(openssl rand -base64 18 | tr -d '+/=' | tr '[:upper:]' '[:lower:]' | head -c 24)
+          ADMIN_EMAIL="${ADMIN_EMAIL:-admin@local}"
+
+          echo "::add-mask::$ADMIN_PWD"
+
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -u sentinel docker compose --env-file /opt/sentinelacs/config/.env \
+                -f /opt/sentinelacs/docker-compose.yml \
+                -f /opt/sentinelacs/docker-compose.prod.yml \
+                run --rm \
+                  -e SEED_ADMIN_EMAIL='$ADMIN_EMAIL' \
+                  -e SEED_ADMIN_PASSWORD='$ADMIN_PWD' \
+                  -e SEED_ADMIN_NAME='Administrador' \
+                  --entrypoint /usr/local/bin/migrate \
+                  app -cmd seed"
+
+          # Persiste no Job Summary (visível para quem tem acesso ao run).
+          # Mascarado nos logs via ::add-mask:: acima.
+          {
+            echo "## 🔑 Admin inicial"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "|---|---|"
+            echo "| email | \`$ADMIN_EMAIL\` |"
+            echo "| senha provisória | \`$ADMIN_PWD\` |"
+            echo ""
+            echo "⚠️ **Faça login agora** em https://${{ vars.PUBLIC_HOST }}/login e troque a senha + cadastre TOTP."
+            echo ""
+            echo "Se esse Job Summary é sensível para o seu modelo de ameaça, **delete este workflow run** após o uso."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Próximos passos
+        env:
+          PUBLIC_HOST: ${{ vars.PUBLIC_HOST }}
+        run: |
+          cat <<EOF
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            Provision concluído.
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          ✅ Servidor está provisionado.
+
+          AGORA:
+            1. Apague o secret BOOTSTRAP_SSH_PASSWORD do GitHub
+               (Settings → Secrets → Actions → BOOTSTRAP_SSH_PASSWORD → Remove)
+
+            2. SSH no servidor e troque a senha do celinet:
+               ssh celinet@${{ vars.SSH_HOST }}
+               passwd celinet
+
+            3. Aponte o DNS:
+               A   $PUBLIC_HOST  ->  ${{ vars.SSH_HOST }}
+
+            4. Acesse:  https://$PUBLIC_HOST/login
+               com o admin criado acima.
+
+          DEPLOYS daqui em diante são automáticos via deploy.yml a cada push em main.
+          EOF

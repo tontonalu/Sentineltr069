@@ -1,0 +1,88 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag específica (deixar vazio = SHA do main mais recente)"
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ vars.PUBLIC_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Determine target tag
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ vars.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync deploy artifacts
+        # docker-compose*.yml e scripts/ podem ter mudado entre versões.
+        # Sincronizamos antes do pull para o deploy.sh local refletir os ajustes.
+        run: |
+          rsync -az --delete \
+            deploy/docker-compose.yml \
+            deploy/docker-compose.prod.yml \
+            ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }}:/opt/sentinelacs/
+
+          rsync -az --delete \
+            deploy/scripts/ \
+            ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }}:/opt/sentinelacs/scripts/
+
+          ssh ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
+            'sudo chown -R sentinel:sentinel /opt/sentinelacs/scripts /opt/sentinelacs/*.yml && \
+             sudo chmod +x /opt/sentinelacs/scripts/*.sh'
+
+      - name: Run deploy script (server-side)
+        env:
+          TARGET_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          ssh ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
+            "sudo -u sentinel /opt/sentinelacs/scripts/deploy.sh $TARGET_TAG"
+
+      - name: Notify Telegram on failure
+        if: failure() && env.TELEGRAM_BOT_TOKEN != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_DEPLOY_CHAT }}
+          SHA: ${{ steps.tag.outputs.value }}
+        run: |
+          curl -fsSL --max-time 5 \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "text=❌ Deploy falhou — SHA \`$SHA\` (workflow $GITHUB_RUN_ID)" \
+            -d "parse_mode=Markdown" \
+            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"

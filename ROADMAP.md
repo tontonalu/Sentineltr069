@@ -294,16 +294,35 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 
 **Objetivo:** push na main → produção em 5 min com rollback automático.
 
-- [ ] **CP-9.1** — `.github/workflows/ci.yml` (lint, templ-check, test, build) verde em PR
-- [ ] **CP-9.2** — Imagem multi-stage publicada em GHCR taggeada por SHA
-- [ ] **CP-9.3** — `docker-compose.prod.yml` + Traefik com Let's Encrypt funcionando
-- [ ] **CP-9.4** — `.github/workflows/deploy.yml` faz pull + up + healthcheck (30 tentativas × 2s)
-- [ ] **CP-9.5** — Rollback automático testado: deploy quebrado volta em <2 min
-- [ ] **CP-9.6** — `.last-good-sha` mantido após deploy ok
-- [ ] **CP-9.7** — Notificação Telegram com status do deploy
-- [ ] **CP-9.8** — Backup horário PG + diário Mongo, off-site cifrado, **restore validado em ambiente isolado** (nunca em prod)
+**Servidor de produção:** Debian 13 (trixie) em `177.72.177.102`, usuário `celinet`. Stack via Docker Compose. Tudo documentado em [deploy/README.md](./deploy/README.md).
 
-**Definition of Done:** RNF-04 (RTO 4h, RPO 1h) e RNF-05 (rollback 5min) demonstrados em ensaio.
+- [x] **CP-9.1** — `.github/workflows/ci.yml` (lint, templ-check, test, gosec, govulncheck, docker build) — *já estava feito desde Fase 0*
+- [x] **CP-9.2** — Imagem multi-stage publicada em GHCR taggeada por SHA + `latest` (mesmo workflow CI)
+- [x] **CP-9.3** — `docker-compose.prod.yml` + Traefik v3 com Let's Encrypt; HSTS + headers de segurança configurados
+- [x] **CP-9.4** — [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) dispara após CI verde: rsync compose+scripts → `deploy.sh` no servidor → healthcheck 30×2s
+- [x] **CP-9.5** — [`deploy/scripts/rollback.sh`](./deploy/scripts/rollback.sh) reverte para `.last-good-sha`; `deploy.sh` chama automaticamente em caso de healthcheck falho
+- [x] **CP-9.6** — `state/last-good-sha` gravado após cada deploy bem-sucedido
+- [x] **CP-9.7** — Notificação Telegram em sucesso (do `deploy.sh`) e em falha (do workflow GitHub Actions)
+- [x] **CP-9.8** — [`deploy/scripts/backup.sh`](./deploy/scripts/backup.sh) com cron horário (PG) e diário (Mongo); cifragem com `age` (chave em `/opt/sentinelacs/secrets/age.key`); upload off-site via rclone para Backblaze B2 (opcional); subcomandos `restore-pg` e `restore-mongo` para validação fora de prod
+- [x] **CP-9 extra: bootstrap idempotente** — [`deploy/scripts/bootstrap.sh`](./deploy/scripts/bootstrap.sh) provisiona Debian 13 limpo: Docker oficial + ufw (firewall com regra explícita por porta) + fail2ban + unattended-upgrades + SSH hardening (root off, password off — só após detectar key auth) + cron de backup
+- [x] **CP-9 extra: init-secrets** — [`deploy/scripts/init-secrets.sh`](./deploy/scripts/init-secrets.sh) gera `/opt/sentinelacs/config/.env` com 3 secrets aleatórios (session, postgres, redis) + prompt interativo para domínio/email/owner
+- [x] **CP-9 extra: Makefile remoto** — `make bootstrap-remote` / `make deploy-remote` / `make ssh` / `make logs-remote` operam o servidor do workstation
+- [x] **CP-9 extra: provision.yml GHA** — workflow `Provision (1ª vez)` faz bootstrap **ponta-a-ponta via GitHub Actions**: usa `BOOTSTRAP_SSH_PASSWORD` 1× (apaga depois) → instala `SSH_PUBLIC_KEY` → roda bootstrap.sh → init-secrets non-interactive → docker login GHCR → deploy.sh → seed do admin com senha aleatória mostrada no Job Summary
+- [x] **CP-9 extra: seed-admin.yml** — workflow on-demand para regenerar senha do admin (não-destrutivo se admin já existe)
+
+**Notas operacionais:**
+
+- Firewall: 22/80/443 + 7547 (CWMP) + 7567 (GenieACS-FS para download de firmware). NBI (7557), Postgres (5432), Redis (6379) e Mongo (27017) ficam **na rede docker interna** — nunca expostos.
+- SSH hardening só desliga senha após detectar `~/.ssh/authorized_keys` populado — defesa contra trancar o operador fora.
+- 2 chaves age: `secrets/age.key` (cifragem de backups) e `secrets/app.age.key` (cifragem de TOTP/credenciais runtime). **Ambas precisam de backup off-site separado** — sem elas os dados são irrecuperáveis.
+
+**Pendentes (precisam acesso real ao servidor):**
+
+- [ ] **Validação E2E**: rodar bootstrap → init-secrets → deploy → healthcheck verde → criar admin via `migrate -cmd seed` → login + TOTP funcionais → 1 CPE real conectando em 7547
+- [ ] **Ensaio de rollback**: deploy intencionalmente quebrado → confirmar volta automática para `.last-good-sha` em <2 min (CP-9.5 validation)
+- [ ] **Ensaio de restore**: pg_dump + age decrypt + pg_restore em VM isolada → confirmar dados consistentes (CP-9.8 validation)
+
+**Definition of Done parcial:** scripts e workflows prontos. Falta a validação prática no servidor real (CP-9.5 e CP-9.8 ensaios).
 
 ---
 
@@ -340,7 +359,8 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 | **4 — Telemetria & Dashboards** | **5/7** | — | CP-4.6 (UI POPs), CP-4.7 (carga — dep Pré-req-A) |
 | **5 — Alertas & Notificações** | **6/7** | — | CP-5.7 (E2E — dep canais reais + GenieACS) |
 | **🎯 MVP fechado** | | | restam apenas validações end-to-end com infra real |
-| **6-9** | — | — | tudo (pós-MVP) |
+| **9 — CI/CD & Deploy** | **8/8** + 3 extras | — | validação E2E no servidor real |
+| **6-8** | — | — | pós-MVP (Voalle write, RADIUS, hardening avançado) |
 
 **Próximas ações sugeridas (em ordem):**
 
@@ -361,12 +381,20 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 4. **CP-3.6 e-2-e** — testar trocar SSID em 1 CPE real → validar `connection_request` + `setParameterValues` (depende de Pré-req-A)
 5. **CP-3.9 SSE** — `GET /provisioning/batches/{id}/events` empurra updates conforme `RecountFromJobs` muda contadores; UI pode atualizar barra de progresso sem polling
 6. **CP-3.10 carga** — script `loadtest/` com 1.000 jobs → métricas de tempo + sem travar UI
-7. **CP-4.6 — UI POPs** — handler `/pops/{id}` com tabela agregada (devices online por POP, somatório de clientes Wi-Fi por banda, sinal óptico médio). Reusa `TelemetryRepo` com filtro por POP
-8. **CP-4.7 — carga telemetria** — script gera 1k devices online no GenieACS de homologação; medir duração do tick + samples gravados
-9. **CP-5.7 — E2E alertas** — configurar Evolution + Telegram em homolog; criar regra "POP offline > 10%"; derrubar containers de CPE simulados; medir latência fired→message ≤ 2 min
-10. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
-11. **🎯 MVP em produção** — depois desses 5 itens, o sistema está validado end-to-end e pode ser colocado em produção
-12. Avançar para **Fase 6** — Voalle Completo (write + webhook), pós-MVP
+7. **🚀 Bootstrap do servidor 177.72.177.102** (Fase 9 prática):
+   1. `ssh-copy-id celinet@177.72.177.102` (depois de gerar key local)
+   2. `make bootstrap-remote` → instala Docker, ufw, fail2ban, hardening
+   3. `ssh celinet@177.72.177.102 'sudo -u sentinel /opt/sentinelacs/scripts/init-secrets.sh'`
+   4. apontar DNS A para o IP, login no GHCR, `make deploy-remote`
+   5. configurar GitHub Secrets/Variables conforme [deploy/README.md](./deploy/README.md)
+   6. seed do admin via `migrate -cmd seed`
+8. **CP-4.6 — UI POPs** — handler `/pops/{id}` com tabela agregada (devices online por POP, somatório de clientes Wi-Fi por banda, sinal óptico médio). Reusa `TelemetryRepo` com filtro por POP
+9. **CP-4.7 — carga telemetria** — script gera 1k devices online no GenieACS de homologação; medir duração do tick + samples gravados
+10. **CP-5.7 — E2E alertas** — configurar Evolution + Telegram em homolog; criar regra "POP offline > 10%"; derrubar containers de CPE simulados; medir latência fired→message ≤ 2 min
+11. **CP-9 ensaios** — provar rollback automático (deploy intencionalmente quebrado) e restore (pg_dump → age → restore em VM)
+12. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
+13. **🎯 MVP em produção** — depois desses itens, sistema validado end-to-end
+14. Avançar para **Fase 6** — Voalle Completo (write + webhook), pós-MVP
 
 ---
 
