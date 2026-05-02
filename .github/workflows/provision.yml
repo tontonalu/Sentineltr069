@@ -253,8 +253,12 @@ jobs:
             done
 
             rm -rf /tmp/sentinel-stage
-            # sudo ls — celinet não está no grupo sentinel (dir é 0750).
-            sudo ls -la /opt/sentinelacs/*.yml /opt/sentinelacs/scripts/*.sh
+            # /opt/sentinelacs/ é 0750 sentinel:sentinel — celinet não pode
+            # listar, então o glob precisa ser expandido SOB sudo (via bash -c)
+            # para enxergar o conteúdo. "sudo ls *.yml" sem isso não funciona:
+            # o shell do celinet expande o glob antes do sudo, falha em ler
+            # o dir, e passa "*.yml" literal pro ls.
+            sudo bash -c "ls -la /opt/sentinelacs/*.yml /opt/sentinelacs/scripts/*.sh"
           '
 
       - name: Optional reset of existing .env
