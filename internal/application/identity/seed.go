@@ -23,7 +23,11 @@ type SeedAdminInput struct {
 }
 
 // SeedAdmin cria (ou re-ativa) um usuário com role superadmin global.
-// Idempotente: se o admin já existe, apenas garante que está ativo e tem o role.
+// Idempotente: se o admin já existe, atualiza senha + garante ativo + role.
+// Atualizar a senha é intencional — o caso de uso típico de re-rodar seed
+// em prod é justamente recuperar acesso quando a senha foi perdida (via
+// workflow seed-admin que gera senha nova). Em deploy automático, o seed
+// não é invocado — ele só roda no provision inicial e em workflow_dispatch.
 func SeedAdmin(
 	ctx context.Context,
 	users domain.UserRepository,
@@ -74,7 +78,10 @@ func SeedAdmin(
 		return uuid.Nil, fmt.Errorf("seed: buscar user: %w", err)
 	}
 
-	// Já existe — garantir ativo + role superadmin.
+	// Já existe — atualizar senha + garantir ativo + role superadmin.
+	if err := users.UpdatePasswordHash(ctx, existing.ID, hash); err != nil {
+		return uuid.Nil, fmt.Errorf("seed: atualizar senha: %w", err)
+	}
 	if !existing.IsActive {
 		if err := users.SetActive(ctx, existing.ID, true); err != nil {
 			return uuid.Nil, fmt.Errorf("seed: reativar: %w", err)
