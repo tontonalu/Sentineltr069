@@ -127,16 +127,23 @@ func (h *DashboardHandler) Index(w http.ResponseWriter, r *http.Request) {
 
 // runHealthChecks reproduz a lógica de healthz.go porém retorna o tipo do
 // dashboard. Não dá pra reusar diretamente porque healthz emite JSON HTTP.
+//
+// Rótulos são propositalmente genéricos ("Banco de dados", "Cache", "ACS
+// upstream") em vez de nomes de produto (Postgres/Redis/GenieACS) — qualquer
+// usuário autenticado vê o dashboard, e expor o stack facilita reconhecimento
+// pra atacante interno ou compromisso de credenciais. /healthz (JSON) ainda
+// usa nomes de produto pra ferramentas de monitoria, mas é endpoint público
+// já assumido como leakado.
 func (h *DashboardHandler) runHealthChecks(ctx context.Context) []dashboardpage.HealthRow {
 	rows := make([]dashboardpage.HealthRow, 0, 3)
 
-	rows = append(rows, runDashboardCheck(ctx, "Postgres", h.Postgres == nil, func(c context.Context) error {
+	rows = append(rows, runDashboardCheck(ctx, "Banco de dados", h.Postgres == nil, func(c context.Context) error {
 		return pgdb.Ping(c, h.Postgres)
 	}))
-	rows = append(rows, runDashboardCheck(ctx, "Redis", h.Redis == nil, func(c context.Context) error {
+	rows = append(rows, runDashboardCheck(ctx, "Cache", h.Redis == nil, func(c context.Context) error {
 		return rds.Ping(c, h.Redis)
 	}))
-	rows = append(rows, runDashboardCheck(ctx, "GenieACS", h.GenieACS == nil, func(c context.Context) error {
+	rows = append(rows, runDashboardCheck(ctx, "ACS upstream", h.GenieACS == nil, func(c context.Context) error {
 		return h.GenieACS.Ping(c)
 	}))
 	return rows
