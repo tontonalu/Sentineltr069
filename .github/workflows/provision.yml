@@ -135,6 +135,38 @@ jobs:
         run: |
           ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" 'echo "key auth OK como $(whoami)@$(hostname)"'
 
+      - name: Instalar pré-requisitos mínimos no servidor
+        env:
+          BOOTSTRAP_PWD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_HOST:      ${{ vars.SSH_HOST }}
+          SSH_USER:      ${{ vars.SSH_USER }}
+        run: |
+          # Debian 13 minimal vem sem rsync/curl/etc. O bootstrap.sh precisa
+          # desses pacotes pra subir Docker, ufw, fail2ban, age. Como não há
+          # NOPASSWD ainda, usamos sudo -S com a senha via stdin.
+          #
+          # PRÉ-REQUISITO: 'sudo' já instalado (única dependência circular —
+          # foi instalado manualmente como root na primeira vez. Idempotente
+          # nas execuções seguintes).
+          ssh "$SSH_USER@$SSH_HOST" \
+            "sudo -S -p '' bash -c '\
+              export DEBIAN_FRONTEND=noninteractive; \
+              apt-get update -qq && \
+              apt-get install -y -qq \
+                rsync \
+                curl \
+                ca-certificates \
+                gnupg \
+                lsb-release \
+                openssl \
+                age \
+                ufw \
+                fail2ban \
+                unattended-upgrades \
+                jq \
+                git'" \
+            <<< "$BOOTSTRAP_PWD"
+
       - name: Sync compose files + scripts (1ª vez — usa senha pra sudo mkdir)
         env:
           BOOTSTRAP_PWD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
