@@ -167,24 +167,23 @@ jobs:
                 git'" \
             <<< "$BOOTSTRAP_PWD"
 
-      - name: Sync compose files + scripts (1ª vez — usa senha pra sudo mkdir)
+      - name: Sync scripts (1ª vez — só o necessário para rodar bootstrap)
         env:
           BOOTSTRAP_PWD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
           SSH_HOST:      ${{ vars.SSH_HOST }}
           SSH_USER:      ${{ vars.SSH_USER }}
         run: |
+          # Bootstrap precisa apenas dos scripts. Os compose files são copiados
+          # APÓS bootstrap (quando sentinel user existe e NOPASSWD está ativo).
           # Antes do bootstrap, NÃO há sudoers configurado pra celinet sem
-          # senha. Então o primeiro mkdir/chown precisa de sudo -S.
+          # senha — primeiro mkdir/chown usa sudo -S com BOOTSTRAP_SSH_PASSWORD.
           ssh "$SSH_USER@$SSH_HOST" \
             "sudo -S -p '' bash -c 'mkdir -p /opt/sentinelacs/scripts && chown -R $SSH_USER:$SSH_USER /opt/sentinelacs'" \
             <<< "$BOOTSTRAP_PWD"
 
-          rsync -az --delete \
-            deploy/docker-compose.yml \
-            deploy/docker-compose.prod.yml \
-            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/"
-
-          rsync -az --delete \
+          # Sem --delete: bootstrap.sh pode ter criado outros arquivos (age keys,
+          # cron, etc.) que NÃO devem ser apagados em re-execuções idempotentes.
+          rsync -az \
             deploy/scripts/ \
             "$SSH_USER@$SSH_HOST:/opt/sentinelacs/scripts/"
 
@@ -202,14 +201,30 @@ jobs:
             "sudo -S -p '' bash /opt/sentinelacs/scripts/bootstrap.sh" \
             <<< "$BOOTSTRAP_PWD"
 
-      - name: Re-sync depois do bootstrap (sentinel user existe agora)
+      - name: Sync compose files + re-sync scripts (sentinel user existe agora)
         env:
           SSH_HOST: ${{ vars.SSH_HOST }}
           SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          # NOPASSWD já configurado — sudo sem senha funciona daqui.
+          # NOPASSWD já configurado — sudo sem senha funciona daqui em diante.
+          # Bootstrap criou /opt/sentinelacs/ como sentinel:sentinel 0750. O
+          # celinet (rsync remoto) NÃO consegue escrever direto. Solução:
+          # rsync via --rsync-path com sudo, escrevendo diretamente como
+          # sentinel.
+          rsync -az \
+            --rsync-path="sudo -u sentinel rsync" \
+            deploy/docker-compose.yml \
+            deploy/docker-compose.prod.yml \
+            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/"
+
+          rsync -az \
+            --rsync-path="sudo -u sentinel rsync" \
+            deploy/scripts/ \
+            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/scripts/"
+
+          # chmod +x via sudo (NOPASSWD) — scripts executáveis.
           ssh "$SSH_USER@$SSH_HOST" \
-            'sudo chown -R sentinel:sentinel /opt/sentinelacs/scripts /opt/sentinelacs/*.yml'
+            'sudo chmod +x /opt/sentinelacs/scripts/*.sh'
 
       - name: Optional reset of existing .env
         if: ${{ inputs.reset_secrets }}
