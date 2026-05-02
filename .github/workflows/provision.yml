@@ -286,7 +286,7 @@ jobs:
                 GHCR_OWNER='$GHCR_OWNER' \
               /opt/sentinelacs/scripts/init-secrets.sh"
 
-      - name: Fix .env existente — aspas em valores com espaço
+      - name: Fix .env existente — aspas em valores com espaço + dono correto
         env:
           SSH_HOST: ${{ vars.SSH_HOST }}
           SSH_USER: ${{ vars.SSH_USER }}
@@ -294,8 +294,12 @@ jobs:
           # Versões antigas do init-secrets.sh geravam linhas tipo
           # NOTIFIER_SMTP_FROM_NAME=SentinelACS Alerts (sem aspas), o que quebra
           # 'source .env' no deploy.sh. Idempotente: só altera se ainda não tem aspas.
+          # Bonus: chown sentinel:sentinel + chmod 0640 ao fim — runs anteriores
+          # podem ter deixado o .env com dono root:root (sed -i recria o arquivo
+          # com dono do invocante).
           ssh "$SSH_USER@$SSH_HOST" '
             sudo bash -c "
+              set -e
               ENV=/opt/sentinelacs/config/.env
               if grep -qE \"^NOTIFIER_SMTP_FROM_NAME=[^\\\"].*[[:space:]]\" \"\$ENV\"; then
                 sed -i \"s|^NOTIFIER_SMTP_FROM_NAME=\\(.*\\)\$|NOTIFIER_SMTP_FROM_NAME=\\\"\\1\\\"|\" \"\$ENV\"
@@ -303,6 +307,9 @@ jobs:
               else
                 echo \"✓ NOTIFIER_SMTP_FROM_NAME já com aspas (ou sem espaço)\"
               fi
+              chown sentinel:sentinel \"\$ENV\"
+              chmod 0640 \"\$ENV\"
+              echo \"✓ dono e perms do .env normalizados\"
             "
           '
 
