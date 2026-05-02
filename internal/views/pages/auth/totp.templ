@@ -1,6 +1,9 @@
 package auth
 
-import "github.com/celinet/sentinel-acs/internal/views/layouts"
+import (
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	settings "github.com/celinet/sentinel-acs/internal/views/pages/settings"
+)
 
 // VerifyTOTPPage — página exibida após login com senha quando o user tem 2FA.
 // O cookie sentinel_preauth carrega o token; o user só precisa digitar o código.
@@ -50,6 +53,7 @@ templ VerifyTOTPForm(csrfToken, errMsg string) {
 // otpAuthDataURL = "data:image/png;base64,..." gerado a partir do PNG do QR.
 templ EnrollTOTPPage(csrfToken, qrDataURL, secret, errMsg string) {
 	@layouts.Base("Ativar 2FA") {
+		@settings.Tabs()
 		<div class="mx-auto max-w-lg space-y-6">
 			<div>
 				<h1 class="text-2xl font-semibold text-sentinel-900">Ativar autenticação em duas etapas</h1>

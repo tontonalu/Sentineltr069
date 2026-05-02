@@ -23,11 +23,22 @@ type ListInput struct {
 	SelectedVendor string
 	SelectedStatus string
 	Search         string
+
+	// CSRF + flag para botão de sync manual.
+	CSRFToken string
+	CanSync   bool
 }
 
 templ List(in ListInput) {
 	@layouts.Base("Devices") {
-		@components.PageHeader("Devices", strconv.Itoa(in.Total)+" CPEs encontrados")
+		@components.PageHeader("Devices", strconv.Itoa(in.Total)+" CPEs encontrados") {
+			if in.CanSync {
+				<form method="POST" action="/devices/sync">
+					<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
+					<button type="submit" class="btn-primary">Sincronizar agora</button>
+				</form>
+			}
+		}
 		@components.Card("") {
 			@filtersBar(in)
 		}

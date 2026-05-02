@@ -19,6 +19,7 @@ import (
 	// blank import força o registro do plugin Voalle (e futuros) no registry global.
 	_ "github.com/celinet/sentinel-acs/internal/infrastructure/erp/voalle"
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
+	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
 	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
@@ -35,6 +36,10 @@ import (
 
 // version é injetado via -ldflags em build (deploy/Dockerfile).
 var version = "dev"
+
+// offlineThreshold deve casar com o valor usado no worker (cmd/worker/main.go).
+// Mantemos local para evitar acoplamento entre os dois binários.
+const offlineThreshold = 30 * time.Minute
 
 func main() {
 	if err := run(); err != nil {
@@ -173,6 +178,17 @@ func run() error {
 	authH := &handlers.AuthHandler{Login: loginSvc, Preauth: preauth, CookieSecure: cookieSecure}
 	totpH := &handlers.TOTPHandler{Login: loginSvc, TOTP: totpSvc, Preauth: preauth, CookieSecure: cookieSecure}
 	adminUsersH := &handlers.AdminUsersHandler{Users: userRepo, Roles: roleRepo, Admin: adminSvc}
+
+	// SyncService — exposto também no servidor HTTP para o botão "Sincronizar
+	// agora" em /devices. O worker mantém o tick periódico em paralelo.
+	var syncSvc *appinventory.SyncService
+	if pgPool != nil {
+		syncSvc = appinventory.NewSyncService(
+			deviceRepo, customerRepo, vendorRepo, modelRepo,
+			genieClient, offlineThreshold,
+		)
+	}
+
 	devicesH := &handlers.DevicesHandler{
 		Devices:   deviceRepo,
 		Customers: customerRepo,
@@ -180,7 +196,12 @@ func run() error {
 		Models:    modelRepo,
 		POPs:      popRepo,
 		GenieACS:  genieClient,
+		SyncSvc:   syncSvc,
 	}
+
+	settingsPOPsH := &handlers.SettingsPOPsHandler{POPs: popRepo}
+	settingsVendorsH := &handlers.SettingsVendorsHandler{Vendors: vendorRepo}
+	settingsModelsH := &handlers.SettingsModelsHandler{Models: modelRepo, Vendors: vendorRepo}
 
 	templatesH := &handlers.TemplatesHandler{
 		Service:  tplService,
@@ -309,17 +330,51 @@ func run() error {
 
 		r.Get("/", dashboardH.Index)
 
-		// Settings — TOTP enroll
+		// Settings — landing redireciona para a primeira aba (TOTP).
+		r.Get("/settings", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/settings/totp", http.StatusSeeOther)
+		})
 		if totpSvc != nil {
 			r.Get("/settings/totp", totpH.EnrollPage)
 			r.Post("/settings/totp", totpH.EnrollSubmit)
 		}
+
+		// Settings · POPs — exige pop.manage (já no superadmin via migration 002).
+		r.Route("/settings/pops", func(r chi.Router) {
+			r.Use(mw.RequirePermission("pop", "manage"))
+			r.Get("/", settingsPOPsH.List)
+			r.Get("/new", settingsPOPsH.NewForm)
+			r.Post("/", settingsPOPsH.Create)
+			r.Get("/{id}/edit", settingsPOPsH.EditForm)
+			r.Post("/{id}", settingsPOPsH.Update)
+			r.Post("/{id}/toggle", settingsPOPsH.ToggleActive)
+		})
+
+		// Settings · Vendors e Modelos — vendor.manage cobre ambos por design da migration.
+		r.Route("/settings/vendors", func(r chi.Router) {
+			r.Use(mw.RequirePermission("vendor", "manage"))
+			r.Get("/", settingsVendorsH.List)
+			r.Get("/new", settingsVendorsH.NewForm)
+			r.Post("/", settingsVendorsH.Create)
+		})
+		r.Route("/settings/models", func(r chi.Router) {
+			r.Use(mw.RequirePermission("vendor", "manage"))
+			r.Get("/", settingsModelsH.List)
+			r.Get("/new", settingsModelsH.NewForm)
+			r.Post("/", settingsModelsH.Create)
+		})
 
 		// Devices — leitura para todos autenticados com device.read.
 		r.Route("/devices", func(r chi.Router) {
 			r.Use(mw.RequirePermission("device", "read"))
 			r.Get("/", devicesH.List)
 			r.Get("/{id}", devicesH.Detail)
+
+			// Sincronização manual com GenieACS — exige integration.manage.
+			if syncSvc != nil {
+				r.With(mw.RequirePermission("integration", "manage")).
+					Post("/sync", devicesH.Sync)
+			}
 
 			// Histórico — exige telemetry.read.
 			if historyH != nil {

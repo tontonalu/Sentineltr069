@@ -71,7 +71,11 @@
       "Bash(xargs -r kill)",
       "Bash(APP_PORT=8090 /Users/tonton/Documents/GitHub/Sentineltr069/bin/server)",
       "Bash(curl -s http://localhost:8090/login)",
-      "Bash(lsof -ti:8090)"
+      "Bash(lsof -ti:8090)",
+      "Bash(grep -E \"\\\\.\\(go|templ\\)$\")",
+      "Bash(grep -E \"\\\\.\\(go|mod\\)$\")",
+      "Read(//Users/tonton/.claude/plans/**)",
+      "Bash(awk 'NR>=39 && NR<=66 {gsub\\(/\\\\t/, \"\\\\\\\\t\"\\); print NR\": \"$0}' /Users/tonton/Documents/GitHub/Sentineltr069/internal/views/components/sidebar.templ)"
     ]
   }
 }

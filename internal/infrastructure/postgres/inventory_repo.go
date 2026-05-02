@@ -206,6 +206,27 @@ func (r *DeviceModelRepo) ListByVendor(ctx context.Context, vendorID uuid.UUID) 
 	return out, rows.Err()
 }
 
+func (r *DeviceModelRepo) List(ctx context.Context) ([]inventory.DeviceModel, error) {
+	const q = `SELECT dm.id, dm.vendor_id, dm.model, dm.tr_data_model, COALESCE(dm.description,''), dm.created_at
+	             FROM device_models dm
+	             JOIN vendors v ON v.id = dm.vendor_id
+	            ORDER BY v.name, dm.model`
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []inventory.DeviceModel
+	for rows.Next() {
+		var m inventory.DeviceModel
+		if err := rows.Scan(&m.ID, &m.VendorID, &m.Model, &m.TRDataModel, &m.Description, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // ────────────────────── CustomerRepository ──────────────────────
 
 type CustomerRepo struct{ pool Pool }

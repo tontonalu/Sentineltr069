@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
 	"github.com/celinet/sentinel-acs/internal/platform/logger"
@@ -24,6 +27,7 @@ type DevicesHandler struct {
 	Models    domain.DeviceModelRepository
 	POPs      domain.POPRepository
 	GenieACS  *genieacs.Client
+	SyncSvc   *appinventory.SyncService
 }
 
 const devicesPageSize = 50
@@ -67,6 +71,7 @@ func (h *DevicesHandler) List(w http.ResponseWriter, r *http.Request) {
 	vendors, _ := h.Vendors.List(r.Context())
 	pops, _ := h.POPs.List(r.Context())
 
+	csrf := mw.CSRFTokenFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = devicepages.List(devicepages.ListInput{
 		Devices:        devs,
@@ -79,7 +84,25 @@ func (h *DevicesHandler) List(w http.ResponseWriter, r *http.Request) {
 		SelectedVendor: vendorStr,
 		SelectedStatus: filter.Status,
 		Search:         filter.Search,
+		CSRFToken:      csrf,
+		CanSync:        h.SyncSvc != nil,
 	}).Render(r.Context(), w)
+}
+
+// Sync POST /devices/sync — dispara um Tick manual do SyncService.
+func (h *DevicesHandler) Sync(w http.ResponseWriter, r *http.Request) {
+	if h.SyncSvc == nil {
+		http.Error(w, "sync indisponível", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	if _, err := h.SyncSvc.Tick(ctx); err != nil {
+		logger.FromContext(r.Context()).Error("manual sync", "err", err)
+		http.Error(w, "falha ao sincronizar com GenieACS", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/devices", http.StatusSeeOther)
 }
 
 // Detail GET /devices/{id}

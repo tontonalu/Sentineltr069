@@ -39,25 +39,27 @@ templ Sidebar(currentPath string) {
 			// Nav principal
 			<nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
 				@NavLink("/", "Início", "home", currentPath == "/")
-				@NavLink("/devices", "Devices", "router", isPathActive(currentPath, "/devices"))
-				@NavLink("/templates", "Templates", "file-cog", isPathActive(currentPath, "/templates"))
-				@NavLink("/alerts", "Alertas", "bell", isPathActive(currentPath, "/alerts"))
-				@NavLink("/provisioning/jobs", "Provisionamento", "clock", isPathActive(currentPath, "/provisioning"))
-				@NavLink("/integrations", "Integrações", "plug", isPathActive(currentPath, "/integrations"))
+				@NavLink("/devices", "Devices", "router", IsPathActive(currentPath, "/devices"))
+				@NavLink("/templates", "Templates", "file-cog", IsPathActive(currentPath, "/templates"))
+				@NavLink("/alerts", "Alertas", "bell", IsPathActive(currentPath, "/alerts"))
+				@NavLink("/provisioning/jobs", "Provisionamento", "clock", IsPathActive(currentPath, "/provisioning"))
+				@NavLink("/integrations", "Integrações", "plug", IsPathActive(currentPath, "/integrations"))
 				<div class="my-2 border-t border-sentinel-100"></div>
-				@NavLink("/admin/users", "Usuários", "users", isPathActive(currentPath, "/admin/users"))
+				@NavLink("/admin/users", "Usuários", "users", IsPathActive(currentPath, "/admin/users"))
 			</nav>
 			// Rodapé
 			<div class="border-t border-sentinel-100 px-3 py-4">
-				@NavLink("/settings/totp", "Configurações", "settings", isPathActive(currentPath, "/settings"))
+				@NavLink("/settings", "Configurações", "settings", IsPathActive(currentPath, "/settings"))
 			</div>
 		</aside>
 	</div>
 }
 
-// isPathActive — true se currentPath bate exatamente com prefix OU começa com "prefix/".
+// IsPathActive — true se currentPath bate exatamente com prefix OU começa com "prefix/".
+//
+// Exportado para reuso por componentes em outros pacotes (ex: tabs de Configurações).
 // Evita falso-positivo onde "/devices" ativaria "/devices-other".
-func isPathActive(currentPath, prefix string) bool {
+func IsPathActive(currentPath, prefix string) bool {
 	if currentPath == prefix {
 		return true
 	}

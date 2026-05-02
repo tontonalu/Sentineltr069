@@ -1,0 +1,124 @@
+package settings
+
+import (
+	"github.com/google/uuid"
+
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	"github.com/celinet/sentinel-acs/internal/views/components"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+// ModelDraft — repopula form em caso de erro.
+type ModelDraft struct {
+	VendorID    string
+	Model       string
+	TRDataModel string
+	Description string
+}
+
+templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Vendor) {
+	@layouts.Base("Configurações · Modelos") {
+		@Tabs()
+		@components.PageHeader("Modelos de device", "Modelos cadastrados por fabricante") {
+			@components.Button("Novo modelo", "/settings/models/new", "primary")
+		}
+		@components.Card("") {
+			if len(models) == 0 {
+				@components.EmptyState("router", "Nenhum modelo cadastrado", "Cadastre um vendor antes e depois adicione os modelos.")
+			} else {
+				@components.Table(true) {
+					@components.TableHeader([]string{"Vendor", "Modelo", "TR Data Model", "Descrição"})
+					<tbody>
+						for _, m := range models {
+							<tr>
+								<td class="text-sentinel-700">
+									if v, ok := vendorByID[m.VendorID]; ok {
+										{ v.Name }
+									} else {
+										<span class="text-sentinel-500">—</span>
+									}
+								</td>
+								<td class="font-medium text-sentinel-900">{ m.Model }</td>
+								<td>
+									if m.IsTR181() {
+										@components.Badge("TR-181", "info")
+									} else {
+										@components.Badge("TR-098", "neutral")
+									}
+								</td>
+								<td class="text-sentinel-500">
+									if m.Description != "" {
+										{ m.Description }
+									} else {
+										<span>—</span>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				}
+			}
+		}
+	}
+}
+
+templ ModelNewPage(csrfToken string, vendors []domain.Vendor, draft ModelDraft, errMsg string) {
+	@layouts.Base("Novo modelo") {
+		@Tabs()
+		<div class="mx-auto max-w-2xl space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">Novo modelo</h1>
+				<a href="/settings/models" class="btn-ghost">← Voltar</a>
+			</div>
+			if len(vendors) == 0 {
+				@components.Card("") {
+					<p class="text-sm text-sentinel-700">
+						Cadastre ao menos um vendor antes de criar modelos.
+						<a href="/settings/vendors/new" class="text-sentinel-900 underline">Cadastrar vendor</a>.
+					</p>
+				}
+			} else {
+				<form method="POST" action="/settings/models" class="space-y-4 rounded-lg bg-white p-6 shadow">
+					<input type="hidden" name="_csrf" value={ csrfToken }/>
+					<div>
+						<label for="vendor_id" class="block text-sm font-medium text-sentinel-700">Vendor</label>
+						<select id="vendor_id" name="vendor_id" required class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none">
+							<option value="">— selecione —</option>
+							for _, v := range vendors {
+								<option value={ v.ID.String() } selected?={ draft.VendorID == v.ID.String() }>{ v.Name }</option>
+							}
+						</select>
+					</div>
+					<div>
+						<label for="model" class="block text-sm font-medium text-sentinel-700">Modelo</label>
+						<input id="model" type="text" name="model" value={ draft.Model } required class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
+					</div>
+					<fieldset>
+						<legend class="block text-sm font-medium text-sentinel-700">TR Data Model</legend>
+						<div class="mt-2 flex gap-4">
+							<label class="flex items-center gap-2 text-sm">
+								<input type="radio" name="tr_data_model" value={ domain.TR181 } checked?={ draft.TRDataModel == "" || draft.TRDataModel == domain.TR181 }/>
+								TR-181
+							</label>
+							<label class="flex items-center gap-2 text-sm">
+								<input type="radio" name="tr_data_model" value={ domain.TR098 } checked?={ draft.TRDataModel == domain.TR098 }/>
+								TR-098 (legado)
+							</label>
+						</div>
+					</fieldset>
+					<div>
+						<label for="description" class="block text-sm font-medium text-sentinel-700">Descrição (opcional)</label>
+						<input id="description" type="text" name="description" value={ draft.Description } class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
+					</div>
+					if errMsg != "" {
+						<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
+					}
+					<div class="flex justify-end gap-2">
+						<a href="/settings/models" class="btn-ghost">Cancelar</a>
+						<button type="submit" class="btn-primary">Criar</button>
+					</div>
+				</form>
+			}
+		</div>
+	}
+}

@@ -342,3 +342,13 @@ func (r *fakeModelRepo) ListByVendor(_ context.Context, vID uuid.UUID) ([]domain
 	}
 	return out, nil
 }
+
+func (r *fakeModelRepo) List(_ context.Context) ([]domain.DeviceModel, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []domain.DeviceModel
+	for _, m := range r.byKey {
+		out = append(out, *m)
+	}
+	return out, nil
+}

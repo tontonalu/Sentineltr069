@@ -1,0 +1,27 @@
+package settings
+
+import (
+	mw "github.com/celinet/sentinel-acs/internal/transport/http/middleware"
+	"github.com/celinet/sentinel-acs/internal/views/components"
+)
+
+// Tabs — barra de abas das páginas em /settings/*. currentPath vem do
+// middleware NavContext, igual ao layout Base; cada link reaproveita
+// components.IsPathActive para o estado active.
+templ Tabs() {
+	{{ currentPath := mw.PathFromContext(ctx) }}
+	<nav class="mb-6 flex flex-wrap gap-1 border-b border-sentinel-100">
+		@tabLink("/settings/totp", "TOTP", currentPath)
+		@tabLink("/settings/pops", "POPs", currentPath)
+		@tabLink("/settings/vendors", "Vendors", currentPath)
+		@tabLink("/settings/models", "Modelos", currentPath)
+	</nav>
+}
+
+templ tabLink(href, label, currentPath string) {
+	if components.IsPathActive(currentPath, href) {
+		<a href={ templ.SafeURL(href) } class="border-b-2 border-sentinel-900 px-4 py-2 text-sm font-medium text-sentinel-900">{ label }</a>
+	} else {
+		<a href={ templ.SafeURL(href) } class="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-sentinel-500 hover:text-sentinel-900">{ label }</a>
+	}
+}

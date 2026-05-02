@@ -1,0 +1,143 @@
+package settings
+
+import (
+	"github.com/google/uuid"
+
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	"github.com/celinet/sentinel-acs/internal/views/components"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+// POPDraft mantém os valores submetidos para repopular o form em caso de erro.
+type POPDraft struct {
+	Name     string
+	City     string
+	State    string
+	IsActive bool
+}
+
+templ POPsList(csrfToken string, pops []domain.POP) {
+	@layouts.Base("Configurações · POPs") {
+		@Tabs()
+		@components.PageHeader("POPs", "Pontos de presença cadastrados") {
+			@components.Button("Novo POP", "/settings/pops/new", "primary")
+		}
+		@components.Card("") {
+			if len(pops) == 0 {
+				@components.EmptyState("router", "Nenhum POP cadastrado", "Use o botão acima para cadastrar o primeiro POP.")
+			} else {
+				@components.Table(true) {
+					@components.TableHeader([]string{"Nome", "Cidade", "Estado", "Status", "Ações"})
+					<tbody id="pops-tbody">
+						for _, p := range pops {
+							@POPRow(csrfToken, p)
+						}
+					</tbody>
+				}
+			}
+		}
+	}
+}
+
+// POPRow é fragment HTMX-aware (toggle ativo retorna a row atualizada).
+templ POPRow(csrfToken string, p domain.POP) {
+	<tr id={ "pop-row-" + p.ID.String() }>
+		<td>
+			<a href={ templ.URL("/settings/pops/" + p.ID.String() + "/edit") } class="font-medium text-sentinel-900 hover:underline">{ p.Name }</a>
+		</td>
+		<td class="text-sentinel-700">
+			if p.City != "" {
+				{ p.City }
+			} else {
+				<span class="text-sentinel-500">—</span>
+			}
+		</td>
+		<td class="text-sentinel-700">
+			if p.State != "" {
+				{ p.State }
+			} else {
+				<span class="text-sentinel-500">—</span>
+			}
+		</td>
+		<td>
+			if p.IsActive {
+				@components.Badge("Ativo", "success")
+			} else {
+				@components.Badge("Inativo", "neutral")
+			}
+		</td>
+		<td class="text-right">
+			<button
+				type="button"
+				hx-post={ "/settings/pops/" + p.ID.String() + "/toggle" }
+				hx-headers={ `{"X-CSRF-Token": "` + csrfToken + `"}` }
+				hx-target={ "#pop-row-" + p.ID.String() }
+				hx-swap="outerHTML"
+				class="text-sm text-sentinel-500 hover:text-sentinel-900"
+			>
+				if p.IsActive {
+					Desativar
+				} else {
+					Ativar
+				}
+			</button>
+		</td>
+	</tr>
+}
+
+templ POPNewPage(csrfToken string, draft POPDraft, errMsg string) {
+	@layouts.Base("Novo POP") {
+		@Tabs()
+		<div class="mx-auto max-w-2xl space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">Novo POP</h1>
+				<a href="/settings/pops" class="btn-ghost">← Voltar</a>
+			</div>
+			@popForm(csrfToken, "/settings/pops", "Criar", draft, errMsg)
+		</div>
+	}
+}
+
+templ POPEditPage(csrfToken string, id uuid.UUID, draft POPDraft, errMsg string) {
+	@layouts.Base("Editar POP") {
+		@Tabs()
+		<div class="mx-auto max-w-2xl space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">Editar POP</h1>
+				<a href="/settings/pops" class="btn-ghost">← Voltar</a>
+			</div>
+			@popForm(csrfToken, "/settings/pops/"+id.String(), "Salvar", draft, errMsg)
+		</div>
+	}
+}
+
+templ popForm(csrfToken, action, submitLabel string, draft POPDraft, errMsg string) {
+	<form method="POST" action={ templ.SafeURL(action) } class="space-y-4 rounded-lg bg-white p-6 shadow">
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+		<div>
+			<label for="name" class="block text-sm font-medium text-sentinel-700">Nome</label>
+			<input id="name" type="text" name="name" value={ draft.Name } required class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
+		</div>
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+			<div>
+				<label for="city" class="block text-sm font-medium text-sentinel-700">Cidade</label>
+				<input id="city" type="text" name="city" value={ draft.City } class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
+			</div>
+			<div>
+				<label for="state" class="block text-sm font-medium text-sentinel-700">Estado (UF)</label>
+				<input id="state" type="text" name="state" value={ draft.State } maxlength="2" class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 uppercase focus:border-sentinel-500 focus:outline-none"/>
+			</div>
+		</div>
+		<label class="flex items-center gap-2 text-sm text-sentinel-700">
+			<input type="checkbox" name="is_active" checked?={ draft.IsActive }/>
+			Ativo
+		</label>
+		if errMsg != "" {
+			<p class="text-sm text-red-600" role="alert">{ errMsg }</p>
+		}
+		<div class="flex justify-end gap-2">
+			<a href="/settings/pops" class="btn-ghost">Cancelar</a>
+			<button type="submit" class="btn-primary">{ submitLabel }</button>
+		</div>
+	</form>
+}

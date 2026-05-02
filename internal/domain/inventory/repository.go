@@ -48,6 +48,7 @@ type DeviceModelRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*DeviceModel, error)
 	GetByVendorAndModel(ctx context.Context, vendorID uuid.UUID, model string) (*DeviceModel, error)
 	ListByVendor(ctx context.Context, vendorID uuid.UUID) ([]DeviceModel, error)
+	List(ctx context.Context) ([]DeviceModel, error)
 }
 
 // CustomerRepository — operações usadas pelo Plugin Voalle e pela UI.
