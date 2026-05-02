@@ -31,8 +31,9 @@ if [[ -f "$ENV_FILE" ]]; then
     exit 0
 fi
 
-# Helper: 32 bytes random base64.
-rand() { openssl rand -base64 32 | tr -d '\n'; }
+# Helper: 32 bytes random hex (64 chars, URL-safe).
+# Hex evita '+', '/' e '=' que aparecem em base64 e quebram DATABASE_URL/REDIS_URL.
+rand() { openssl rand -hex 32; }
 
 # ──────────── inputs (env tem precedência sobre prompt) ────────────
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
