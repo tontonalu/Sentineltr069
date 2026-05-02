@@ -219,25 +219,42 @@ jobs:
           SSH_HOST: ${{ vars.SSH_HOST }}
           SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          # NOPASSWD já configurado — sudo sem senha funciona daqui em diante.
-          # Bootstrap criou /opt/sentinelacs/ como sentinel:sentinel 0750. O
-          # celinet (rsync remoto) NÃO consegue escrever direto. Solução:
-          # rsync via --rsync-path com sudo, escrevendo diretamente como
-          # sentinel.
+          # ESTRATÉGIA: stage em /tmp (escrita livre como celinet), depois
+          # 'sudo install' move tudo para /opt/sentinelacs/ com dono e perms
+          # corretos atomicamente.
+          #
+          # Rationale: rsync com --rsync-path="sudo -u sentinel rsync" tem
+          # comportamento inconsistente em alguns sshd's — falha silenciosa
+          # sem warning. O staging em /tmp evita esse footgun.
+
+          # Limpa stage antigo (se houver, de runs interrompidas).
+          ssh "$SSH_USER@$SSH_HOST" 'rm -rf /tmp/sentinel-stage && mkdir -p /tmp/sentinel-stage/scripts'
+
+          # Stage: copia arquivos como celinet (sem sudo).
           rsync -az \
-            --rsync-path="sudo -u sentinel rsync" \
             deploy/docker-compose.yml \
             deploy/docker-compose.prod.yml \
-            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/"
+            "$SSH_USER@$SSH_HOST:/tmp/sentinel-stage/"
 
           rsync -az \
-            --rsync-path="sudo -u sentinel rsync" \
             deploy/scripts/ \
-            "$SSH_USER@$SSH_HOST:/opt/sentinelacs/scripts/"
+            "$SSH_USER@$SSH_HOST:/tmp/sentinel-stage/scripts/"
 
-          # chmod +x via sudo (NOPASSWD) — scripts executáveis.
-          ssh "$SSH_USER@$SSH_HOST" \
-            'sudo chmod +x /opt/sentinelacs/scripts/*.sh'
+          # Move atomicamente para /opt/sentinelacs com dono sentinel:sentinel.
+          # 'install' = cp + chown + chmod num único syscall, idempotente.
+          ssh "$SSH_USER@$SSH_HOST" '
+            set -e
+            for f in /tmp/sentinel-stage/docker-compose.yml /tmp/sentinel-stage/docker-compose.prod.yml; do
+              sudo install -o sentinel -g sentinel -m 0644 "$f" /opt/sentinelacs/
+            done
+
+            for f in /tmp/sentinel-stage/scripts/*.sh; do
+              sudo install -o sentinel -g sentinel -m 0755 "$f" /opt/sentinelacs/scripts/
+            done
+
+            rm -rf /tmp/sentinel-stage
+            ls -la /opt/sentinelacs/*.yml /opt/sentinelacs/scripts/*.sh
+          '
 
       - name: Optional reset of existing .env
         if: ${{ inputs.reset_secrets }}
