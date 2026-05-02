@@ -25,11 +25,13 @@ import (
 )
 
 // Client encapsula um http.Client + credenciais + baseURL do NBI.
+// Campo `cache` é opcional — populado por WithCache (cache.go).
 type Client struct {
 	baseURL  string
 	authUser string
 	authPass string
 	http     *http.Client
+	cache    *Cache
 }
 
 // New constrói o cliente. Timeout default 30s — operações que demoram mais
@@ -64,7 +66,15 @@ func (c *Client) Ping(ctx context.Context) error {
 // ──────────────── Devices ────────────────
 
 // GetDevice busca 1 device pelo seu _id no GenieACS.
+//
+// Se cache estiver habilitado (WithCache), tenta primeiro o Redis com TTL
+// configurado. Mutações (Set/Reboot/etc) invalidam automaticamente.
 func (c *Client) GetDevice(ctx context.Context, deviceID string) (*Device, error) {
+	if raw, ok := c.cacheGet(ctx, deviceID); ok {
+		d := parseDevice(raw)
+		return &d, nil
+	}
+
 	devices, err := c.QueryDevices(ctx, Query{
 		Filter: map[string]any{"_id": deviceID},
 		Limit:  1,
@@ -75,6 +85,7 @@ func (c *Client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 	if len(devices) == 0 {
 		return nil, ErrDeviceNotFound
 	}
+	c.cacheSet(ctx, deviceID, devices[0].Raw)
 	return &devices[0], nil
 }
 
@@ -134,6 +145,7 @@ func (c *Client) QueryDevices(ctx context.Context, q Query) ([]Device, error) {
 
 // DeleteDevice remove o registro do GenieACS — irreversível.
 func (c *Client) DeleteDevice(ctx context.Context, deviceID string) error {
+	defer c.InvalidateDevice(ctx, deviceID)
 	u := c.baseURL + "/devices/" + url.PathEscape(deviceID)
 	resp, err := c.do(ctx, http.MethodDelete, u, nil)
 	if err != nil {
@@ -272,7 +284,11 @@ func (c *Client) GetFaults(ctx context.Context, deviceID string) ([]Fault, error
 // postTask é o factory de todas as ações enfileiráveis.
 // Quando connRequest=true, adiciona ?connection_request — GenieACS dispara
 // CR antes de tentar executar a task.
+//
+// Side-effect: invalida cache do device — próximo GetDevice retorna fresco.
 func (c *Client) postTask(ctx context.Context, deviceID string, task Task, connRequest bool) (TaskID, error) {
+	defer c.InvalidateDevice(ctx, deviceID)
+
 	u := fmt.Sprintf("%s/devices/%s/tasks", c.baseURL, url.PathEscape(deviceID))
 	if connRequest {
 		u += "?connection_request"

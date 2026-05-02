@@ -1,0 +1,92 @@
+package templates
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+)
+
+type DetailInput struct {
+	Profile tmpl.Profile
+	History []tmpl.HistoryEntry
+	CSRF    string
+}
+
+templ Detail(in DetailInput) {
+	@layouts.Base(in.Profile.Name) {
+		<div class="mx-auto max-w-5xl space-y-6">
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold text-sentinel-900">{ in.Profile.Name }</h1>
+					if in.Profile.Description != "" {
+						<p class="text-sm text-sentinel-500">{ in.Profile.Description }</p>
+					}
+				</div>
+				<div class="flex items-center gap-2">
+					<span class="font-mono text-sm text-sentinel-500">v{ strconv.Itoa(in.Profile.Version) }</span>
+					<a href={ templ.URL("/templates/" + in.Profile.ID.String() + "/edit") } class="btn-secondary">Editar</a>
+				</div>
+			</div>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Parâmetros</h2>
+				<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+					<thead class="text-left text-xs uppercase tracking-wider text-sentinel-500">
+						<tr>
+							<th class="px-2 py-2">canonical_key</th>
+							<th class="px-2 py-2">tr_path</th>
+							<th class="px-2 py-2">value_template</th>
+							<th class="px-2 py-2">tipo</th>
+							<th class="px-2 py-2">secret</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-sentinel-50">
+						for _, p := range in.Profile.Parameters {
+							<tr>
+								<td class="px-2 py-2 font-mono text-sentinel-900">{ p.CanonicalKey }</td>
+								<td class="px-2 py-2 font-mono text-xs text-sentinel-700">{ p.TRPath }</td>
+								<td class="px-2 py-2 font-mono text-xs">
+									if p.IsSecret {
+										<span class="rounded bg-yellow-50 px-2 text-yellow-800">●●●●●</span>
+									} else {
+										{ p.ValueTemplate }
+									}
+								</td>
+								<td class="px-2 py-2 text-sentinel-700">{ string(p.DataType) }</td>
+								<td class="px-2 py-2">
+									if p.IsSecret {
+										<span class="text-xs text-yellow-700">sim</span>
+									} else {
+										<span class="text-xs text-sentinel-500">não</span>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</section>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Histórico</h2>
+				if len(in.History) == 0 {
+					<p class="text-sm text-sentinel-500">Sem entradas de histórico ainda.</p>
+				} else {
+					<ul class="space-y-2 text-sm">
+						for _, h := range in.History {
+							<li class="flex items-start justify-between border-b border-sentinel-50 pb-2">
+								<div>
+									<span class="font-mono text-sentinel-900">v{ strconv.Itoa(h.Version) }</span>
+									if h.ChangeNote != "" {
+										<span class="ml-2 text-sentinel-700">{ h.ChangeNote }</span>
+									}
+								</div>
+								<span class="text-xs text-sentinel-500">{ h.CreatedAt.Format("02/01/2006 15:04") }</span>
+							</li>
+						}
+					</ul>
+				}
+			</section>
+		</div>
+	}
+}

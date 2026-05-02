@@ -1,0 +1,83 @@
+package integrations
+
+import (
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/erp"
+)
+
+// PluginInfo é o que o handler monta para a UI — info do plugin + se está
+// habilitado pela config atual.
+type PluginInfo struct {
+	Info     erp.ProviderInfo
+	Enabled  bool
+	BaseURL  string // mostrado mascarado, sem credenciais
+	SyncCron string // ex: "5m"
+}
+
+templ List(plugins []PluginInfo) {
+	@layouts.Base("Integrações") {
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-semibold text-sentinel-900">Integrações</h1>
+				<p class="text-sm text-sentinel-500">Plugins ERP registrados neste binário.</p>
+			</div>
+
+			if len(plugins) == 0 {
+				<div class="rounded-lg bg-white p-6 shadow text-sentinel-500">
+					Nenhum plugin registrado. Verifique os blank imports em <code>cmd/server/main.go</code> e <code>cmd/worker/main.go</code>.
+				</div>
+			}
+
+			<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+				for _, p := range plugins {
+					@pluginCard(p)
+				}
+			</div>
+		</div>
+	}
+}
+
+templ pluginCard(p PluginInfo) {
+	<div class="rounded-lg bg-white p-6 shadow">
+		<div class="flex items-start justify-between">
+			<div>
+				<h2 class="text-lg font-medium text-sentinel-900">{ p.Info.DisplayName }</h2>
+				<p class="text-xs text-sentinel-500">slug: <code>{ p.Info.Slug }</code> · v{ p.Info.Version }</p>
+			</div>
+			if p.Enabled {
+				<span class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 text-xs font-medium text-green-700">
+					<span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+					Habilitado
+				</span>
+			} else {
+				<span class="inline-flex rounded-full bg-sentinel-50 px-2 text-xs text-sentinel-500">Desabilitado</span>
+			}
+		</div>
+
+		<dl class="mt-4 space-y-2 text-sm">
+			if p.Enabled {
+				<div class="flex items-center justify-between">
+					<dt class="text-sentinel-500">Endpoint</dt>
+					<dd class="font-mono text-xs text-sentinel-900">{ p.BaseURL }</dd>
+				</div>
+				<div class="flex items-center justify-between">
+					<dt class="text-sentinel-500">Sync interval</dt>
+					<dd class="text-sentinel-900">{ p.SyncCron }</dd>
+				</div>
+			} else {
+				<div class="text-xs text-sentinel-500">
+					Configure as variáveis de ambiente (<code>VOALLE_BASE_URL</code>, <code>VOALLE_CLIENT_ID</code>, <code>VOALLE_CLIENT_SECRET</code>) e reinicie o worker.
+				</div>
+			}
+		</dl>
+
+		<div class="mt-4">
+			<h3 class="text-xs font-medium uppercase tracking-wider text-sentinel-500">Capabilities</h3>
+			<div class="mt-2 flex flex-wrap gap-2">
+				for _, cap := range p.Info.Capabilities {
+					<span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{ string(cap) }</span>
+				}
+			</div>
+		</div>
+	</div>
+}

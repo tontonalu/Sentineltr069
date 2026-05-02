@@ -1,0 +1,200 @@
+package templates
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/domain/inventory"
+)
+
+// idxStr — helper para emitir índice posicional como string nas checkboxes.
+func idxStr(i int) string { return strconv.Itoa(i) }
+
+// FormInput agrupa o necessário para new/edit. ProfileID vazio = create.
+type FormInput struct {
+	CSRF        string
+	ProfileID   string
+	Name        string
+	Description string
+	VendorID    string
+	ModelID     string
+	IsActive    bool
+	Version     int
+	Parameters  []tmpl.Parameter
+	Vendors     []inventory.Vendor
+	Models      []inventory.DeviceModel
+	ChangeNote  string
+	Errors      []string
+}
+
+templ Form(in FormInput) {
+	@layouts.Base(formTitle(in)) {
+		<div class="mx-auto max-w-5xl space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">{ formTitle(in) }</h1>
+				if in.Version > 0 {
+					<span class="font-mono text-sm text-sentinel-500">v{ strconv.Itoa(in.Version) }</span>
+				}
+			</div>
+
+			if len(in.Errors) > 0 {
+				<div class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+					<ul class="list-disc pl-5">
+						for _, e := range in.Errors {
+							<li>{ e }</li>
+						}
+					</ul>
+				</div>
+			}
+
+			<form method="post" action={ formAction(in) } class="space-y-6 rounded-lg bg-white p-6 shadow" x-data="paramsForm()">
+				<input type="hidden" name="_csrf" value={ in.CSRF }/>
+
+				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+					<label class="block">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Nome</span>
+						<input type="text" name="name" value={ in.Name } required class="input mt-1 w-full"/>
+					</label>
+					<label class="block">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Vendor</span>
+						<select name="vendor_id" class="input mt-1 w-full">
+							<option value="">— Genérico —</option>
+							for _, v := range in.Vendors {
+								<option value={ v.ID.String() } selected?={ in.VendorID == v.ID.String() }>{ v.Name }</option>
+							}
+						</select>
+					</label>
+					<label class="block md:col-span-2">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Descrição</span>
+						<textarea name="description" rows="2" class="input mt-1 w-full">{ in.Description }</textarea>
+					</label>
+					<label class="inline-flex items-center gap-2 text-sm">
+						<input type="checkbox" name="is_active" value="1" checked?={ in.IsActive }/>
+						<span>Ativo</span>
+					</label>
+				</div>
+
+				<div>
+					<div class="mb-2 flex items-center justify-between">
+						<h2 class="text-lg font-semibold text-sentinel-900">Parâmetros</h2>
+						<button type="button" class="btn-secondary" @click="addRow()">Adicionar parâmetro</button>
+					</div>
+					<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+						<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
+							<tr>
+								<th class="px-2 py-2">canonical_key</th>
+								<th class="px-2 py-2">tr_path</th>
+								<th class="px-2 py-2">value_template</th>
+								<th class="px-2 py-2">tipo</th>
+								<th class="px-2 py-2">secret</th>
+								<th class="px-2 py-2"></th>
+							</tr>
+						</thead>
+						<tbody>
+							for i, p := range in.Parameters {
+								@paramRow(i, p)
+							}
+						</tbody>
+					</table>
+					<template x-for="(row, i) in extraRows" :key="i">
+						<div></div>
+					</template>
+				</div>
+
+				<label class="block">
+					<span class="text-xs uppercase tracking-wide text-sentinel-500">Nota da mudança (opcional)</span>
+					<input type="text" name="change_note" value={ in.ChangeNote } class="input mt-1 w-full"/>
+				</label>
+
+				<div class="flex justify-end gap-2">
+					<a href="/templates" class="btn-ghost">Cancelar</a>
+					<button type="submit" class="btn-primary">Salvar</button>
+				</div>
+			</form>
+
+			<script>
+				function paramsForm() {
+					return {
+						extraRows: [],
+						addRow() {
+							this.extraRows.push({});
+							const tbody = this.$el.querySelector('tbody');
+							const idx = tbody.children.length;
+							const tpl = `
+								<tr>
+									<td class="px-2 py-1"><input type="text" name="param_canonical_key[]" required class="input w-full"/></td>
+									<td class="px-2 py-1"><input type="text" name="param_tr_path[]" required class="input w-full"/></td>
+									<td class="px-2 py-1"><input type="text" name="param_value_template[]" required class="input w-full"/></td>
+									<td class="px-2 py-1">
+										<select name="param_data_type[]" class="input">
+											<option>string</option><option>int</option><option>bool</option>
+											<option>unsignedInt</option><option>dateTime</option>
+										</select>
+									</td>
+									<td class="px-2 py-1 text-center">
+										<input type="checkbox" name="param_is_secret_idx[]" value="${idx}"/>
+									</td>
+									<td class="px-2 py-1 text-right">
+										<button type="button" class="text-sentinel-500 hover:text-red-600" @click="$el.closest('tr').remove()">remover</button>
+									</td>
+								</tr>`;
+							tbody.insertAdjacentHTML('beforeend', tpl);
+						}
+					}
+				}
+			</script>
+		</div>
+	}
+}
+
+templ paramRow(i int, p tmpl.Parameter) {
+	<tr>
+		<td class="px-2 py-1">
+			<input type="text" name="param_canonical_key[]" value={ p.CanonicalKey } required class="input w-full"/>
+		</td>
+		<td class="px-2 py-1">
+			<input type="text" name="param_tr_path[]" value={ p.TRPath } required class="input w-full"/>
+		</td>
+		<td class="px-2 py-1">
+			<input type="text" name="param_value_template[]" value={ p.ValueTemplate } required class="input w-full"/>
+		</td>
+		<td class="px-2 py-1">
+			<select name="param_data_type[]" class="input">
+				@dataTypeOption("string", string(p.DataType))
+				@dataTypeOption("int", string(p.DataType))
+				@dataTypeOption("bool", string(p.DataType))
+				@dataTypeOption("unsignedInt", string(p.DataType))
+				@dataTypeOption("dateTime", string(p.DataType))
+			</select>
+		</td>
+		<td class="px-2 py-1 text-center">
+			<input type="checkbox" name="param_is_secret_idx[]" value={ idxStr(i) } checked?={ p.IsSecret }/>
+		</td>
+		<td class="px-2 py-1 text-right">
+			<button type="button" class="text-sentinel-500 hover:text-red-600" onclick="this.closest('tr').remove()">remover</button>
+		</td>
+	</tr>
+}
+
+templ dataTypeOption(value, current string) {
+	if value == current {
+		<option value={ value } selected>{ value }</option>
+	} else {
+		<option value={ value }>{ value }</option>
+	}
+}
+
+func formTitle(in FormInput) string {
+	if in.ProfileID == "" {
+		return "Novo profile"
+	}
+	return "Editar profile"
+}
+
+func formAction(in FormInput) templ.SafeURL {
+	if in.ProfileID == "" {
+		return templ.URL("/templates")
+	}
+	return templ.URL("/templates/" + in.ProfileID)
+}

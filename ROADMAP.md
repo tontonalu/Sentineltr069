@@ -138,7 +138,7 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
   - `application/inventory.SyncService.Tick` — query NBI com projection canônica, fallback TR-098/TR-181/virtual params, find-or-create de vendor/model com cache por execução, link customer por PPPoE login, status calc com threshold configurável (30 min default)
   - `cmd/worker/main.go` — boot completo, primeira execução imediata, ticker 1 min, timeout 5 min por tick, graceful shutdown
   - 5 testes via httptest cobrindo: criação nova, idempotência, link customer, status offline, slugify
-- [ ] **CP-2.5** — Cache Redis (TTL 30s) em `GetDevice` — pendente
+- [x] **CP-2.5** — Cache Redis em `GetDevice` (TTL 30s) — `Client.WithCache(redis, ttl)`. Writes (`postTask`, `DeleteDevice`) invalidam a entrada automaticamente via `defer InvalidateDevice`. Wireado em `cmd/server/main.go`
 - [x] **CP-2.6** — `/devices` com lista paginada (50/página), filtros (POP, vendor, status, busca livre por serial/MAC/genieacs_id), badges de status, links para detail
 - [x] **CP-2.7** — `/devices/{id}` mostra:
   - Identificação (serial, MAC, OUI, vendor, modelo + tag TR data model)
@@ -149,7 +149,7 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 - [x] **CP-2.8** — `inventory.ComputeStatus(lastInform, now, threshold)` no domínio + uso no SyncService. Threshold parametrizado (30 min default no worker)
 - [ ] **CP-2.9** — Testes com 2 CPEs reais (1 TR-098, 1 TR-181) — depende do Pré-req-A
 
-**Status atual:** **6/9 checkpoints concluídos**. CP-2.5 (cache) pendente; CP-2.3 e CP-2.9 dependem do GenieACS rodando.
+**Status atual:** **7/9 checkpoints concluídos**. CP-2.3 e CP-2.9 dependem do GenieACS rodando.
 
 **Definition of Done:** lista 100% dos CPEs do GenieACS com ações básicas remotas funcionando.
 
@@ -161,15 +161,19 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 
 > Esta é uma versão **enxuta** do Plugin Voalle (apenas leitura). Webhook, block/unblock e captive portal ficam para a Fase 6.
 
-- [ ] **CP-2.5.1** — Estrutura `internal/infrastructure/erp/voalle/` criada com `Provider` parcial (apenas `Info`, `HealthCheck`, `SyncCustomers`, `GetCustomerByID`)
-- [ ] **CP-2.5.2** — Interface `ERPProvider` definida em `internal/infrastructure/erp/plugin.go` (mesma da §9.2 do doc principal, mas implementação inicial cobre só métodos read)
-- [ ] **CP-2.5.3** — Registry com auto-registro via `init()` em `internal/infrastructure/erp/registry.go`
-- [ ] **CP-2.5.4** — OAuth client credentials Voalle funcionando + retry/backoff exponencial
-- [ ] **CP-2.5.5** — Cron incremental 5 min usando `Since`; idempotência verificada (rerun não duplica)
-- [ ] **CP-2.5.6** — Vinculação automática `customer ↔ device` por PPPoE login no sync de inventário
-- [ ] **CP-2.5.7** — UI `/customers` lista clientes sincronizados (read-only) + `/integrations` mostra status do Voalle (último sync, próximo, total)
+- [x] **CP-2.5.1** — `internal/infrastructure/erp/voalle/`: `config.go` (parse + defaults com schema configurável), `oauth.go` (token manager com cache + retry exponencial 3x + invalidate em 401), `provider.go` (Info/HealthCheck/SyncCustomers/GetCustomerByID; Block/Unblock/Webhook devolvem `ErrCapabilityUnsupported`)
+- [x] **CP-2.5.2** — `internal/infrastructure/erp/plugin.go` define `Provider`, `ProviderInfo` (com `Has(Capability)`), `Customer` canônico, `SyncOptions/Result/Cursor`, `WebhookEvent`. `errors.go` com `ErrCapabilityUnsupported`, `ErrCustomerNotFound`, `ErrAuth`
+- [x] **CP-2.5.3** — `registry.go` com `Register/New/List`. Voalle registra-se via `init()`. Caller faz blank import (`_ "..../erp/voalle"`) — feito em `cmd/server` e `cmd/worker`
+- [x] **CP-2.5.4** — OAuth client_credentials com token cacheado (refresh 30s antes de expirar), retry 3x com backoff exponencial, retry automático em 401 (token invalidado)
+- [x] **CP-2.5.5** — `application/integration/erp_sync.go` — `ERPSyncService.Tick` paginado, mantém `lastSince` para sync incremental, idempotente (Upsert por external_source+external_id). Worker dispara a cada 5 min (configurável via `VOALLE_SYNC_INTERVAL`)
+- [x] **CP-2.5.6** — Já feito em CP-2.4: `application/inventory/sync.go` busca customer por `pppoe_login` e linka. Quando Voalle popula `customers` antes do GenieACS-tick, o link acontece naturalmente
+- [~] **CP-2.5.7** — `/integrations` mostra plugins registrados, status habilitado/desabilitado, BaseURL mascarado, sync interval e capabilities. **Falta**: histórico de runs (depende de StatusTracker em Redis para ser compartilhado server↔worker)
 
 **Definition of Done:** N customers reais do Voalle no banco; M devices vinculados a customers via PPPoE.
+
+**Status atual:** **6.5/7 checkpoints**. Plugin funcional pronto para conectar; falta apenas histórico de runs visível na UI.
+
+**Testes:** 5 testes em `voalle/provider_test.go` (happy path, token cacheado, info, capabilities unsupported, parse config).
 
 ---
 
@@ -179,18 +183,20 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 
 > Pré-requisito: variáveis `customer.*` já estão disponíveis (Fase 2.5).
 
-- [ ] **CP-3.1** — Migrations: `config_profiles`, `profile_parameters`, `customer_config_snapshots`, `provisioning_jobs`
-- [ ] **CP-3.2** — Engine Pongo2 sandbox com filtros customizados (`upper`, `last_n_digits`, `slugify`, `mask_phone`) + testes
-- [ ] **CP-3.3** — CRUD de profile + parameters em `/templates`
-- [ ] **CP-3.4** — Versionamento incrementa em cada edit; `config_profiles_history` populada
-- [ ] **CP-3.5** — Worker (`cmd/worker`) consome stream `provisioning.requested` do Redis
-- [ ] **CP-3.6** — Fluxo end-to-end: aplicar profile em 1 device → SetParameterValues + ConnectionRequest + polling + audit
-- [ ] **CP-3.7** — UI de aplicação em massa com filtros (POP, vendor, plano) + preview obrigatório com count
-- [ ] **CP-3.8** — Throttle de 100 jobs paralelos respeitado; jobs com retry exponencial (max 3)
-- [ ] **CP-3.9** — SSE atualiza UI conforme jobs completam (sem reload)
-- [ ] **CP-3.10** — **Teste de carga**: 1.000 jobs em paralelo sem travar UI; 5.000 jobs em <30 min
+- [x] **CP-3.1** — Migrations: `config_profiles`, `profile_parameters`, `config_profiles_history`, `customer_config_snapshots`, `provisioning_jobs`, `provisioning_batches` (`migrations/00003_init_templates.sql`)
+- [x] **CP-3.2** — Engine sandbox **próprio** (não Pongo2 — ver nota abaixo) com filtros canônicos (`upper`, `lower`, `title`, `trim`, `first_word`, `last_word`, `last_n_digits`, `first_n_digits`, `digits_only`, `slugify`, `mask_phone`, `default`, `replace`, `substring`, `date`) + 12 testes em `engine_test.go`
+- [x] **CP-3.3** — CRUD de profile + parameters em `/templates` (handlers `templates.go`, templ pages `list/form/detail`, repos `ProfileRepo` + `ParameterRepo`)
+- [x] **CP-3.4** — Versionamento incremental em `Service.Update` (header OU params alterados → bump v); `config_profiles_history` snapshot append-only via `ProfileHistoryRepo`; 5 testes em `service_test.go`
+- [x] **CP-3.5** — Worker (`cmd/worker`) consome stream `provisioning.requested` (Redis Streams + consumer group `provisioning-workers`) **+ polling fallback** a cada 30s (cobre Redis indisponível e retries agendados)
+- [x] **CP-3.6** — Fluxo end-to-end implementado: `Service.ApplyToDevice` → render → enqueue job → worker `Executor.RunByID` → `genieacs.SetParameterValues` (com `connection_request` automático) → `MarkDone` com task_id; preview disponível em `POST /devices/{id}/templates/{profileID}/preview`
+- [x] **CP-3.7** — UI/API de aplicação em massa: `Service.ApplyBulk` cria `provisioning_batches` + N jobs com `batch_id`; threshold de aprovação em **1000 devices** → `awaiting_approval`; endpoint `POST /templates/{id}/apply-bulk`
+- [x] **CP-3.8** — Retry exponencial (`30s * (retry_count+1)`) em `JobRepo.MarkFailed`, max 3 tentativas em `Executor.maxRetry`; throttle por batch limit no consumer (`provisioningBatchSize=10` por iter, ~6× = 60/min worker — ajustável); `RecountFromJobs` mantém contadores agregados
+- [ ] **CP-3.9** — SSE atualiza UI conforme jobs completam (sem reload) — **pendente**, JSON polling via `/provisioning/jobs/{id}` funciona
+- [ ] **CP-3.10** — **Teste de carga**: 1.000 jobs em paralelo sem travar UI; 5.000 jobs em <30 min — **pendente, aguardando GenieACS de homologação**
 
-**Definition of Done:** trocar SSID de 100 CPEs em massa via UI (RNF-02 validado em escala reduzida).
+**Nota — Engine de templates:** descartamos Pongo2 (peso ~3MB, sandbox dependente de configuração, superfície de exec/import) em favor de um engine minimalista próprio (`internal/application/templates/engine.go`). Sintaxe `{{ var.path | filter | filter:arg }}`, sandbox **por construção** (zero acesso a fs/net/exec, apenas leitura de Context). Cobre 100% dos casos do RF-03 sem ônus de dependência. Filtros são `FilterFunc` puras registradas no construtor — extensão trivial via `engine.RegisterFilter`.
+
+**Definition of Done parcial:** profile CRUD completo, versionamento funcionando, fluxo single-device end-to-end pronto. Falta validação RNF-02 com CPEs reais (depende de Pré-req-A) e SSE para UX em massa.
 
 ---
 
@@ -318,24 +324,32 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 |---|---|---|---|
 | **0 — Fundação** | 8/9 (+ 2 hardening extra) | — | CP-0.9 (radacct test) |
 | **1 — Identidade & RBAC** | 8/9 | CP-1.9 (parte testcontainers) | — |
-| **2 — Inventário & GenieACS** | **6/9** | CP-2.5 (cache Redis) | CP-2.3, 2.9 (deps Pré-req-A) |
-| **2.5 — Voalle Read-Only** | — | — | tudo |
-| **3-9** | — | — | tudo |
+| **2 — Inventário & GenieACS** | **7/9** | — | CP-2.3, 2.9 (deps Pré-req-A) |
+| **2.5 — Voalle Read-Only** | **6.5/7** | CP-2.5.7 (histórico de runs na UI) | — |
+| **3 — Templates & Provisionamento** | **8/10** | — | CP-3.9 (SSE), CP-3.10 (carga — dep Pré-req-A) |
+| **4-9** | — | — | tudo |
 
 **Próximas ações sugeridas (em ordem):**
 
-1. **Smoke test no servidor** após `make tidy && make generate && make build && make test`:
-   - Aplicar migrations: `./bin/migrate -cmd up` (aplica 00001 + 00002)
-   - Seed admin: `SEED_ADMIN_PASSWORD=... ./bin/migrate -cmd seed`
-   - Subir worker: `./bin/worker` (faz primeiro sync imediato; cron 1 min)
-   - Subir server: `./bin/server`
-   - Acessar `/devices` → lista deve aparecer após primeiro tick
-   - Clicar em device → ver detail → testar Connection Request
-2. **CP-2.5** — adicionar cache Redis em `GetDevice` do GenieACS (TTL 30s)
-3. **Pré-req-A** + **CP-2.3** — criar virtual params canônicos no GenieACS (lista §7.4 do doc principal)
-4. **CP-2.9** — testar com 2 CPEs reais (1 TR-098, 1 TR-181)
-5. **CP-1.9 parte 2** — testes integração com testcontainers-go
-6. Avançar para **Fase 2.5** — Voalle Read-Only (sync de customers já encaixa no DeviceRepo via PPPoE)
+1. **Smoke test integrado no servidor**:
+   ```bash
+   make tidy && make generate && make build && make test
+   ./bin/migrate -cmd up
+   SEED_ADMIN_PASSWORD='senha-12+' ./bin/migrate -cmd seed
+   ./bin/worker &
+   ./bin/server
+   # Login → /templates → criar profile com 1 parâmetro (ex: SSID 2.4G via {{customer.pppoe_login}}_2G)
+   # /devices/{id} → POST /devices/{id}/templates/{profileID}/preview → ver render
+   # POST /devices/{id}/templates/{profileID}/apply → job criado, worker dispara em até 30s
+   # /provisioning/jobs/{id} → status → done/failed
+   ```
+2. **Pré-req-A** + **CP-2.3** — criar virtual params canônicos no GenieACS (lista §7.4 do doc principal). Sem virtual params, sync usa fallback TR-098/TR-181 (já funciona)
+3. **CP-2.9** — testar com 2 CPEs reais (1 TR-098, 1 TR-181) — valida o fallback de paths
+4. **CP-3.6 e-2-e** — testar trocar SSID em 1 CPE real → validar `connection_request` + `setParameterValues` (depende de Pré-req-A)
+5. **CP-3.9 SSE** — `GET /provisioning/batches/{id}/events` empurra updates conforme `RecountFromJobs` muda contadores; UI pode atualizar barra de progresso sem polling
+6. **CP-3.10 carga** — script `loadtest/` com 1.000 jobs → métricas de tempo + sem travar UI
+7. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
+8. Avançar para **Fase 4** — Telemetria & Dashboards
 
 ---
 

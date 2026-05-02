@@ -15,7 +15,12 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	sa "github.com/celinet/sentinel-acs"
+
+	// blank import força o registro do plugin Voalle (e futuros) no registry global.
+	_ "github.com/celinet/sentinel-acs/internal/infrastructure/erp/voalle"
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
+	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
+	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
 	pgdb "github.com/celinet/sentinel-acs/internal/infrastructure/postgres"
 	rds "github.com/celinet/sentinel-acs/internal/infrastructure/redis"
@@ -59,6 +64,10 @@ func run() error {
 		log.Warn("redis não conectado na inicialização", "err", err)
 	}
 	genieClient := genieacs.New(cfg.GenieACS.NBIUrl, cfg.GenieACS.AuthUser, cfg.GenieACS.AuthPass)
+	if redisClient != nil {
+		// CP-2.5: cache de GetDevice com TTL 30s — writes invalidam automaticamente.
+		genieClient.WithCache(redisClient, 30*time.Second)
+	}
 
 	// SecretBox para cifragem de TOTP/credenciais — chave é OBRIGATÓRIA em prod.
 	var secretBox *crypto.SecretBox
@@ -114,6 +123,41 @@ func run() error {
 		modelRepo = pgdb.NewDeviceModelRepo(pgPool)
 		popRepo = pgdb.NewPOPRepo(pgPool)
 	}
+
+	// Templates & Provisioning (Fase 3) — service requer pool, mas a UI/API só
+	// é montada se pgPool estiver disponível.
+	var (
+		profileRepo  *pgdb.ProfileRepo
+		paramRepo    *pgdb.ParameterRepo
+		historyRepo  *pgdb.ProfileHistoryRepo
+		jobRepo      *pgdb.JobRepo
+		batchRepo    *pgdb.BatchRepo
+		tplService   *tplapp.Service
+		provService  *provapp.Service
+		jobNotifier  *rds.JobNotifier
+	)
+	if pgPool != nil {
+		profileRepo = pgdb.NewProfileRepo(pgPool)
+		paramRepo = pgdb.NewParameterRepo(pgPool)
+		historyRepo = pgdb.NewProfileHistoryRepo(pgPool)
+		jobRepo = pgdb.NewJobRepo(pgPool)
+		batchRepo = pgdb.NewBatchRepo(pgPool)
+		tplService = tplapp.NewService(profileRepo, paramRepo, historyRepo)
+
+		// Notifier é interface — se Redis falta, passa nil interface (não
+		// typed-nil) para o `if notify != nil` no service ficar correto.
+		var notifier provapp.Notifier
+		if redisClient != nil {
+			jobNotifier = rds.NewJobNotifier(redisClient)
+			notifier = jobNotifier
+		}
+		provService = provapp.NewService(
+			tplapp.NewEngine(),
+			tplService,
+			deviceRepo, customerRepo, popRepo,
+			jobRepo, batchRepo, notifier,
+		)
+	}
 	if redisClient != nil {
 		preauth = appidentity.NewPreauthStore(redisClient)
 	}
@@ -131,6 +175,31 @@ func run() error {
 		POPs:      popRepo,
 		GenieACS:  genieClient,
 	}
+
+	templatesH := &handlers.TemplatesHandler{
+		Service:  tplService,
+		Profiles: profileRepo,
+		History:  historyRepo,
+		Vendors:  vendorRepo,
+		Models:   modelRepo,
+	}
+	provH := &handlers.ProvisioningHandler{
+		Service: provService,
+		Jobs:    jobRepo,
+		Batches: batchRepo,
+		Devices: deviceRepo,
+	}
+
+	// Integrações — server só mostra status/config; sync acontece no worker.
+	enabledPlugins := map[string]handlers.EnabledPlugin{}
+	if cfg.Voalle.Enabled() {
+		enabledPlugins["voalle"] = handlers.EnabledPlugin{
+			BaseURL:      cfg.Voalle.BaseURL,
+			SyncInterval: cfg.Voalle.SyncIntervalDuration().String(),
+		}
+	}
+	integrationsH := &handlers.IntegrationsHandler{EnabledPlugins: enabledPlugins}
+
 	authDeps := mw.AuthDeps{Login: loginSvc, Assignments: assignRepo, LoginURL: "/login"}
 
 	var limiter *ratelimit.Limiter
@@ -226,7 +295,52 @@ func run() error {
 				Post("/{id}/connection-request", devicesH.ConnectionRequest)
 			r.With(mw.RequirePermission("device", "reboot")).
 				Post("/{id}/reboot", devicesH.Reboot)
+
+			// Aplicar profile a este device — exige provisioning.apply.
+			if provService != nil {
+				r.With(mw.RequirePermission("provisioning", "apply")).
+					Post("/{id}/templates/{profileID}/preview", provH.PreviewToDevice)
+				r.With(mw.RequirePermission("provisioning", "apply")).
+					Post("/{id}/templates/{profileID}/apply", provH.ApplyToDevice)
+			}
 		})
+
+		// Templates — CRUD de profiles. Read para todos com template.read,
+		// mutações exigem template.manage.
+		if tplService != nil {
+			r.Route("/templates", func(r chi.Router) {
+				r.With(mw.RequirePermission("template", "read")).Get("/", templatesH.List)
+				r.With(mw.RequirePermission("template", "read")).Get("/{id}", templatesH.Detail)
+
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("template", "manage"))
+					r.Get("/new", templatesH.NewForm)
+					r.Post("/", templatesH.Create)
+					r.Get("/{id}/edit", templatesH.EditForm)
+					r.Post("/{id}", templatesH.Update)
+				})
+
+				if provService != nil {
+					r.With(mw.RequirePermission("provisioning", "apply_bulk")).
+						Post("/{id}/apply-bulk", provH.ApplyBulk)
+				}
+			})
+		}
+
+		// Provisioning — fila e batches.
+		if provService != nil {
+			r.Route("/provisioning", func(r chi.Router) {
+				r.Use(mw.RequirePermission("provisioning", "read"))
+				r.Get("/jobs", provH.JobsList)
+				r.Get("/jobs/{id}", provH.JobDetail)
+				r.Get("/batches/{id}", provH.BatchDetail)
+				r.With(mw.RequirePermission("provisioning", "approve")).
+					Post("/batches/{id}/approve", provH.ApproveBatch)
+			})
+		}
+
+		// Integrações — leitura por todos com integration.manage (apenas superadmin por padrão).
+		r.With(mw.RequirePermission("integration", "manage")).Get("/integrations", integrationsH.List)
 
 		// Admin — leitura precisa user.read; mutações precisam user.write.
 		r.Route("/admin", func(r chi.Router) {
