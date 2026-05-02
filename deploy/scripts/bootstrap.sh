@@ -254,11 +254,23 @@ else
     log "age key já existe em $AGE_KEY"
 fi
 
-# ──────────── App age key (cifragem de TOTP/secrets em runtime) ────────────
+# ──────────── App crypto key (AES-GCM em hex — TOTP/secrets em runtime) ────────────
+# NOTA: o nome "app.age.key" é histórico; o conteúdo é HEX 64-char (32 bytes
+# AES key), NÃO formato age. O LoadKeyFromFile do app faz hex.DecodeString.
+# (O 'age.key' acima — sem prefixo 'app.' — esse SIM é age, usado para backup.)
 APP_AGE_KEY="$SENTINEL_HOME/secrets/app.age.key"
 if [[ ! -f "$APP_AGE_KEY" ]]; then
-    log "gerando app age key (TOTP/credenciais cifradas em PG)"
-    sudo -u "$SENTINEL_USER" age-keygen -o "$APP_AGE_KEY" 2>/dev/null
+    log "gerando app crypto key (32 bytes hex — AES-GCM)"
+    openssl rand -hex 32 > "$APP_AGE_KEY"
+    chmod 0400 "$APP_AGE_KEY"
+fi
+
+# Validação defensiva: se o file existe mas tem conteúdo errado (ex:
+# instalação antiga gerou via age-keygen), regenera. Hex puro = só 0-9a-f
+# em 64 chars, sem '#' nem newlines internas.
+if ! grep -qE '^[0-9a-f]{64}$' "$APP_AGE_KEY" 2>/dev/null; then
+    warn "$APP_AGE_KEY existe mas não é hex 32B — REGENERANDO"
+    openssl rand -hex 32 > "$APP_AGE_KEY"
     chmod 0400 "$APP_AGE_KEY"
 fi
 
