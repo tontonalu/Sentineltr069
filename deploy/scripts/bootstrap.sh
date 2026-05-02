@@ -85,6 +85,19 @@ install -d -o "$SENTINEL_USER" -g "$SENTINEL_USER" -m 0750 \
     "$SENTINEL_HOME/scripts" \
     "$SENTINEL_HOME/state"
 
+# Garantia: chown -R em re-execuções. O sync inicial do GHA Provision faz
+# 'chown -R celinet:celinet /opt/sentinelacs' antes do bootstrap rodar
+# (pra permitir rsync sem sudo). Sem este chown, dirs como state/ ficam
+# como celinet e o deploy.sh (que roda como sentinel) não consegue escrever.
+# Excluímos scripts/ porque ele é re-sincado depois com 'install' atômico.
+log "normalizando ownership de /opt/sentinelacs/{config,secrets,backup,logs,state}"
+chown -R "$SENTINEL_USER:$SENTINEL_USER" \
+    "$SENTINEL_HOME/config" \
+    "$SENTINEL_HOME/secrets" \
+    "$SENTINEL_HOME/backup" \
+    "$SENTINEL_HOME/logs" \
+    "$SENTINEL_HOME/state"
+
 # secrets/ é mais restrito — só o user lê.
 chmod 0700 "$SENTINEL_HOME/secrets"
 
