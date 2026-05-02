@@ -51,21 +51,35 @@ jobs:
           ssh-keyscan -H "${{ vars.SSH_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Sync deploy artifacts
-        # docker-compose*.yml e scripts/ podem ter mudado entre versões.
-        # Sincronizamos antes do pull para o deploy.sh local refletir os ajustes.
+        # /opt/sentinelacs/ é sentinel:sentinel 0750 — celinet (rsync remoto)
+        # não consegue escrever direto. Stage em /tmp + 'sudo install'
+        # atômico para mover com dono/perms corretos. Mesmo padrão do
+        # provision.yml.
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          rsync -az --delete \
+          ssh "$SSH_USER@$SSH_HOST" 'rm -rf /tmp/sentinel-stage && mkdir -p /tmp/sentinel-stage/scripts'
+
+          rsync -az \
             deploy/docker-compose.yml \
             deploy/docker-compose.prod.yml \
-            ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }}:/opt/sentinelacs/
+            "$SSH_USER@$SSH_HOST:/tmp/sentinel-stage/"
 
-          rsync -az --delete \
+          rsync -az \
             deploy/scripts/ \
-            ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }}:/opt/sentinelacs/scripts/
+            "$SSH_USER@$SSH_HOST:/tmp/sentinel-stage/scripts/"
 
-          ssh ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-            'sudo chown -R sentinel:sentinel /opt/sentinelacs/scripts /opt/sentinelacs/*.yml && \
-             sudo chmod +x /opt/sentinelacs/scripts/*.sh'
+          ssh "$SSH_USER@$SSH_HOST" '
+            set -e
+            for f in /tmp/sentinel-stage/docker-compose.yml /tmp/sentinel-stage/docker-compose.prod.yml; do
+              sudo install -o sentinel -g sentinel -m 0644 "$f" /opt/sentinelacs/
+            done
+            for f in /tmp/sentinel-stage/scripts/*.sh; do
+              sudo install -o sentinel -g sentinel -m 0755 "$f" /opt/sentinelacs/scripts/
+            done
+            rm -rf /tmp/sentinel-stage
+          '
 
       - name: Run deploy script (server-side)
         env:
