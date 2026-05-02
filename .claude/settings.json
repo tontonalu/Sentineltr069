@@ -4,7 +4,14 @@
       "Bash(git init *)",
       "Bash(git fetch *)",
       "Bash(git symbolic-ref *)",
-      "Bash(go build *)"
+      "Bash(go build *)",
+      "Bash(chmod +x /Users/tonton/Documents/GitHub/Sentineltr069/deploy/scripts/*.sh)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(grep -E '^go\\\\.\\(mod|sum\\)$')",
+      "Bash(sed -n '1,80p' /Users/tonton/Documents/GitHub/Sentineltr069/.github/workflows/ci.yml)",
+      "Bash(docker --version)",
+      "Bash(docker info *)"
     ]
   }
 }
