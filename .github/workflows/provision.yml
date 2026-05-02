@@ -253,7 +253,8 @@ jobs:
             done
 
             rm -rf /tmp/sentinel-stage
-            ls -la /opt/sentinelacs/*.yml /opt/sentinelacs/scripts/*.sh
+            # sudo ls — celinet não está no grupo sentinel (dir é 0750).
+            sudo ls -la /opt/sentinelacs/*.yml /opt/sentinelacs/scripts/*.sh
           '
 
       - name: Optional reset of existing .env
