@@ -49,6 +49,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 🔍 Debug — context visibility
+        env:
+          BOOTSTRAP_SSH_PASSWORD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
+          SSH_KEY:                ${{ secrets.SSH_KEY }}
+          SSH_PUBLIC_KEY:         ${{ secrets.SSH_PUBLIC_KEY }}
+          GHCR_PAT:               ${{ secrets.GHCR_PAT }}
+        run: |
+          echo "=== Variables (valores visíveis) ==="
+          echo "vars.SSH_HOST     = '${{ vars.SSH_HOST }}'"
+          echo "vars.SSH_USER     = '${{ vars.SSH_USER }}'"
+          echo "vars.PUBLIC_HOST  = '${{ vars.PUBLIC_HOST }}'"
+          echo "vars.ACME_EMAIL   = '${{ vars.ACME_EMAIL }}'"
+          echo "vars.GHCR_OWNER   = '${{ vars.GHCR_OWNER }}'"
+          echo "vars.ADMIN_EMAIL  = '${{ vars.ADMIN_EMAIL }}'"
+          echo ""
+          echo "=== Secrets (apenas LEN — sem vazar valor) ==="
+          echo "BOOTSTRAP_SSH_PASSWORD length: ${#BOOTSTRAP_SSH_PASSWORD}"
+          echo "SSH_KEY length:                ${#SSH_KEY}"
+          echo "SSH_PUBLIC_KEY length:         ${#SSH_PUBLIC_KEY}"
+          echo "GHCR_PAT length:               ${#GHCR_PAT}"
+          echo ""
+          echo "=== Contexto github ==="
+          echo "actor:      ${{ github.actor }}"
+          echo "event_name: ${{ github.event_name }}"
+          echo "ref_name:   ${{ github.ref_name }}"
+          echo "repo:       ${{ github.repository }}"
+
       - name: Validate required secrets
         env:
           BOOTSTRAP_SSH_PASSWORD: ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
