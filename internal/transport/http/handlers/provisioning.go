@@ -46,7 +46,7 @@ func (h *ProvisioningHandler) PreviewToDevice(w http.ResponseWriter, r *http.Req
 	// Mascaramos secret no preview — UI mostra "●●●●●".
 	out := make([]map[string]any, 0, len(resolved))
 	for _, p := range resolved {
-		v := any(p.Value)
+		v := p.Value
 		if p.IsSecret {
 			v = "●●●●●"
 		}

@@ -71,7 +71,7 @@ func (n *Notifier) Send(ctx context.Context, target, subject, body string) error
 	if err != nil {
 		return fmt.Errorf("smtp: client: %w", err)
 	}
-	defer c.Quit()
+	defer func() { _ = c.Quit() }()
 
 	// STARTTLS quando porta != 465 — só se servidor anuncia.
 	if n.cfg.Port != 465 {

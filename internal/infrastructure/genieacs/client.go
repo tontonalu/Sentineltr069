@@ -169,7 +169,7 @@ func (c *Client) SetParameterValues(ctx context.Context, deviceID string, params
 	return c.postTask(ctx, deviceID, Task{
 		Name:            "setParameterValues",
 		ParameterValues: pv,
-	}, true)
+	})
 }
 
 // GetParameterValues força o ACS a perguntar ao CPE valores específicos.
@@ -177,7 +177,7 @@ func (c *Client) GetParameterValues(ctx context.Context, deviceID string, paths 
 	return c.postTask(ctx, deviceID, Task{
 		Name:           "getParameterValues",
 		ParameterNames: paths,
-	}, true)
+	})
 }
 
 // Refresh revalida uma sub-árvore inteira de parâmetros (ObjectName=="" → root).
@@ -185,17 +185,17 @@ func (c *Client) Refresh(ctx context.Context, deviceID, objectName string) (Task
 	return c.postTask(ctx, deviceID, Task{
 		Name:       "refreshObject",
 		ObjectName: objectName,
-	}, true)
+	})
 }
 
 // Reboot agenda reinicialização do CPE.
 func (c *Client) Reboot(ctx context.Context, deviceID string) (TaskID, error) {
-	return c.postTask(ctx, deviceID, Task{Name: "reboot"}, true)
+	return c.postTask(ctx, deviceID, Task{Name: "reboot"})
 }
 
 // FactoryReset — operação destrutiva. Caller deve exigir confirmação extra.
 func (c *Client) FactoryReset(ctx context.Context, deviceID string) (TaskID, error) {
-	return c.postTask(ctx, deviceID, Task{Name: "factoryReset"}, true)
+	return c.postTask(ctx, deviceID, Task{Name: "factoryReset"})
 }
 
 // Download instrui o CPE a baixar firmware/config do GenieACS-FS.
@@ -205,7 +205,7 @@ func (c *Client) Download(ctx context.Context, deviceID, fileType, fileName, fil
 		FileType: fileType,
 		FileName: fileName,
 		URL:      fileURL,
-	}, true)
+	})
 }
 
 // ConnectionRequest força o ACS a "acordar" o CPE imediatamente, sem
@@ -214,7 +214,7 @@ func (c *Client) ConnectionRequest(ctx context.Context, deviceID string) error {
 	_, err := c.postTask(ctx, deviceID, Task{
 		Name:       "refreshObject",
 		ObjectName: "",
-	}, true)
+	})
 	return err
 }
 
@@ -282,17 +282,14 @@ func (c *Client) GetFaults(ctx context.Context, deviceID string) ([]Fault, error
 // ──────────────── Internals ────────────────
 
 // postTask é o factory de todas as ações enfileiráveis.
-// Quando connRequest=true, adiciona ?connection_request — GenieACS dispara
-// CR antes de tentar executar a task.
+// Sempre adiciona ?connection_request — GenieACS dispara CR antes de
+// tentar executar a task. (Caso futuro precise não-CR, parametrizar de novo.)
 //
 // Side-effect: invalida cache do device — próximo GetDevice retorna fresco.
-func (c *Client) postTask(ctx context.Context, deviceID string, task Task, connRequest bool) (TaskID, error) {
+func (c *Client) postTask(ctx context.Context, deviceID string, task Task) (TaskID, error) {
 	defer c.InvalidateDevice(ctx, deviceID)
 
-	u := fmt.Sprintf("%s/devices/%s/tasks", c.baseURL, url.PathEscape(deviceID))
-	if connRequest {
-		u += "?connection_request"
-	}
+	u := fmt.Sprintf("%s/devices/%s/tasks?connection_request", c.baseURL, url.PathEscape(deviceID))
 
 	body, err := json.Marshal(task)
 	if err != nil {

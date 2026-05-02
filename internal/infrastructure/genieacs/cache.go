@@ -3,7 +3,6 @@ package genieacs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -64,5 +63,3 @@ func (c *Client) InvalidateDevice(ctx context.Context, deviceID string) {
 	_ = c.cache.client.Del(ctx, cacheKeyDevicePrefix+deviceID).Err()
 }
 
-// errCacheMiss é interno — usado para detectar Get vazio sem alocar.
-var errCacheMiss = errors.New("genieacs: cache miss")

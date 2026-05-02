@@ -17,10 +17,11 @@ linters:
     - unused
     - bodyclose
     - gosec
-    - misspell
     - revive
     - unconvert
     - unparam
+    # misspell removido: codebase em PT-BR (cancelado, comando, suspenso etc.
+    # são corretos; misspell trata como inglês e flagga falso-positivos).
 
 linters-settings:
   revive:
@@ -30,9 +31,13 @@ linters-settings:
         disabled: true   # ativaremos quando os pacotes amadurecerem
   gosec:
     excludes:
-      - G304   # file inclusion via variable — usaremos rotineiramente em migrations
-  misspell:
-    locale: US
+      - G101   # falso-positivo: mapas de NOMES de envs (não credenciais)
+      - G104   # estilístico: resp.Body.Close em paths de erro já tratado
+      - G115   # uint32(len(hash)) seguro — argon2 hash tem tamanho fixo
+      - G124   # gosec não detecta cookies com Secure/HttpOnly/SameSite
+               # quando vêm de variáveis (cfg.App.Env == "production")
+      - G304   # file inclusion via variable — paths vêm de config validada
+      - G710   # uuid.String() não pode ser tainted; "open redirect" é F.P.
 
 issues:
   exclude-dirs:
@@ -43,3 +48,4 @@ issues:
       linters:
         - errcheck
         - gosec
+        - unparam

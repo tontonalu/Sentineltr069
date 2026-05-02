@@ -85,9 +85,14 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@master
         with:
-          # G101 falso-positivo: NOMES de env vars (não credenciais hardcoded).
-          # G104 estilístico: resp.Body.Close() em paths de erro já tratado.
-          args: '-quiet -exclude=G101,G104 ./...'
+          # Lista alinhada com .golangci.yml (mesmas exclusões justificadas).
+          # G101 — nomes de env vars (não credenciais)
+          # G104 — resp.Body.Close em paths de erro já tratado
+          # G115 — uint32(len(hash)) seguro: argon2 hash tem tamanho fixo
+          # G124 — cookies têm Secure/HttpOnly/SameSite via cfg.App.Env
+          # G304 — file inclusion: paths vêm de config validada
+          # G710 — uuid.String() não é taintable
+          args: '-quiet -exclude=G101,G104,G115,G124,G304,G710 ./...'
       - name: Run govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
