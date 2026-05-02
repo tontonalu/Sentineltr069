@@ -286,6 +286,26 @@ jobs:
                 GHCR_OWNER='$GHCR_OWNER' \
               /opt/sentinelacs/scripts/init-secrets.sh"
 
+      - name: Fix .env existente — aspas em valores com espaço
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          # Versões antigas do init-secrets.sh geravam linhas tipo
+          # NOTIFIER_SMTP_FROM_NAME=SentinelACS Alerts (sem aspas), o que quebra
+          # 'source .env' no deploy.sh. Idempotente: só altera se ainda não tem aspas.
+          ssh "$SSH_USER@$SSH_HOST" '
+            sudo bash -c "
+              ENV=/opt/sentinelacs/config/.env
+              if grep -qE \"^NOTIFIER_SMTP_FROM_NAME=[^\\\"].*[[:space:]]\" \"\$ENV\"; then
+                sed -i \"s|^NOTIFIER_SMTP_FROM_NAME=\\(.*\\)\$|NOTIFIER_SMTP_FROM_NAME=\\\"\\1\\\"|\" \"\$ENV\"
+                echo \"✓ aspas adicionadas em NOTIFIER_SMTP_FROM_NAME\"
+              else
+                echo \"✓ NOTIFIER_SMTP_FROM_NAME já com aspas (ou sem espaço)\"
+              fi
+            "
+          '
+
       - name: Login GHCR no servidor
         env:
           SSH_HOST:   ${{ vars.SSH_HOST }}
