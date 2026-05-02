@@ -131,7 +131,8 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     container_name: sentinel-app
-    env_file: ../.env
+    # env_file vem dos overrides (dev: docker-compose.dev.yml,
+    # prod: docker-compose.prod.yml) — caminhos divergem entre ambientes.
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
@@ -149,7 +150,7 @@ services:
       dockerfile: deploy/Dockerfile
     container_name: sentinel-worker
     command: ["/usr/local/bin/worker"]
-    env_file: ../.env
+    # env_file vem dos overrides — ver comentário no service 'app'.
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
