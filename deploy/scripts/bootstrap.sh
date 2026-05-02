@@ -82,7 +82,8 @@ install -d -o "$SENTINEL_USER" -g "$SENTINEL_USER" -m 0750 \
     "$SENTINEL_HOME/secrets" \
     "$SENTINEL_HOME/backup" \
     "$SENTINEL_HOME/logs" \
-    "$SENTINEL_HOME/scripts"
+    "$SENTINEL_HOME/scripts" \
+    "$SENTINEL_HOME/state"
 
 # secrets/ é mais restrito — só o user lê.
 chmod 0700 "$SENTINEL_HOME/secrets"
