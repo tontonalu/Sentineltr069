@@ -224,15 +224,21 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 
 **Objetivo:** alerta multi-canal disparando com cooldown.
 
-- [ ] **CP-5.1** — Migrations `alert_rules`, `alerts`
-- [ ] **CP-5.2** — DSL JSON validada via schema (`go-playground/validator` ou JSON Schema)
-- [ ] **CP-5.3** — Engine de avaliação roda a cada 1 min sobre métricas + estado dos devices
-- [ ] **CP-5.4** — Adapters de notificação: Evolution API (WhatsApp), `go-telegram/bot`, SMTP
-- [ ] **CP-5.5** — Cooldown por regra respeitado (não spammar)
-- [ ] **CP-5.6** — UI `/alerts` lista regras + alertas ativos + ack
-- [ ] **CP-5.7** — Teste end-to-end: derrubar 11% dos devices de um POP → alerta crítico no WhatsApp + Telegram em <2 min
+- [x] **CP-5.1** — Migrations `alert_rules`, `alerts`, `notifications` + permissões `alert.read/manage/acknowledge` (`migrations/00005_init_alerts.sql`)
+- [x] **CP-5.2** — DSL declarativa em `internal/domain/alerting/dsl.go` com `Validate()` (operadores, agregações, métrica + janela); roundtrip JSON testado em `dsl_test.go` (4 testes)
+- [x] **CP-5.3** — Engine `internal/application/alerting/engine.go` roda a cada 1 min no worker; auto-resolve quando condição limpa; idempotência por (rule, device); 5 testes em `engine_test.go`
+- [x] **CP-5.4** — 3 adapters em `internal/infrastructure/notifier/`: **WhatsApp** (Evolution API), **Telegram** (Bot API direta — sem SDK pesado), **SMTP** (stdlib `net/smtp` + STARTTLS/TLS implícito); cada um habilitado independentemente via env
+- [x] **CP-5.5** — Cooldown checado em `LastFiredForRule` antes de cada disparo; default 15min, configurável por regra (até 1440min)
+- [x] **CP-5.6** — UI `/alerts` lista alertas ativos + tabela de regras + form CRUD (JSON DSL + canais editáveis); ack/resolve via HTMX swap
+- [ ] **CP-5.7** — Teste end-to-end: derrubar 11% dos devices de um POP → alerta crítico no WhatsApp + Telegram em <2 min — **pendente, depende de Pré-req-A (GenieACS) + canais reais**
 
-**Definition of Done:** notificação real chegando no celular. **Sistema é colocável em produção como MVP** ao final desta fase.
+**Nota — DSL ad-hoc vs JSON Schema:** descartei `go-playground/validator` e JSON Schema externos em favor de uma struct Go com `Validate()` (~100 linhas). Razões: (1) zero deps, (2) erros de validação em português, (3) o conjunto de regras suportadas é fechado (6 metrics, 6 aggregations, 6 operators) — JSON Schema ficaria por cima de algo já tipado. Quando virar caso de uso para regras user-built complexas, vale revisitar com CEL.
+
+**Nota — Telegram sem SDK:** o doc menciona `go-telegram/bot` (~6 MB compilado). Implementei via `net/http` direto (1 POST + parse) — alinhado com filosofia "binário enxuto". Mesmo padrão usado para Evolution API.
+
+**Definition of Done parcial:** alertas criados, persistidos, com cooldown e auto-resolve funcionais; UI completa. **CP-5.7 (E2E real)** falta — mas sistema arquiteturalmente está MVP-ready.
+
+**🎯 Marco — MVP fechado** ao final da fase 5. Próximas fases (6-9) já entram em pós-MVP.
 
 ---
 
@@ -332,7 +338,9 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 | **2.5 — Voalle Read-Only** | **6.5/7** | CP-2.5.7 (histórico de runs na UI) | — |
 | **3 — Templates & Provisionamento** | **8/10** | — | CP-3.9 (SSE), CP-3.10 (carga — dep Pré-req-A) |
 | **4 — Telemetria & Dashboards** | **5/7** | — | CP-4.6 (UI POPs), CP-4.7 (carga — dep Pré-req-A) |
-| **5-9** | — | — | tudo |
+| **5 — Alertas & Notificações** | **6/7** | — | CP-5.7 (E2E — dep canais reais + GenieACS) |
+| **🎯 MVP fechado** | | | restam apenas validações end-to-end com infra real |
+| **6-9** | — | — | tudo (pós-MVP) |
 
 **Próximas ações sugeridas (em ordem):**
 
@@ -355,8 +363,10 @@ Cada checkpoint é binário (passa/não passa) e serve como gate para a fase seg
 6. **CP-3.10 carga** — script `loadtest/` com 1.000 jobs → métricas de tempo + sem travar UI
 7. **CP-4.6 — UI POPs** — handler `/pops/{id}` com tabela agregada (devices online por POP, somatório de clientes Wi-Fi por banda, sinal óptico médio). Reusa `TelemetryRepo` com filtro por POP
 8. **CP-4.7 — carga telemetria** — script gera 1k devices online no GenieACS de homologação; medir duração do tick + samples gravados
-9. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
-10. Avançar para **Fase 5** — Alertas & Notificações
+9. **CP-5.7 — E2E alertas** — configurar Evolution + Telegram em homolog; criar regra "POP offline > 10%"; derrubar containers de CPE simulados; medir latência fired→message ≤ 2 min
+10. **CP-1.9 parte 2** — testes integração com testcontainers-go (PG real para `EffectivePermissions`)
+11. **🎯 MVP em produção** — depois desses 5 itens, o sistema está validado end-to-end e pode ser colocado em produção
+12. Avançar para **Fase 6** — Voalle Completo (write + webhook), pós-MVP
 
 ---
 

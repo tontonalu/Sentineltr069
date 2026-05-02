@@ -1,0 +1,167 @@
+package alerts
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	domain "github.com/celinet/sentinel-acs/internal/domain/alerting"
+)
+
+// ListInput agrupa o que /alerts mostra: alertas ativos + regras cadastradas.
+type ListInput struct {
+	Active []domain.Alert
+	Rules  []domain.Rule
+	CSRF   string
+	CanAck bool
+}
+
+templ List(in ListInput) {
+	@layouts.Base("Alertas") {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-sentinel-900">Alertas</h1>
+				<a href="/alerts/rules/new" class="btn-primary">Nova regra</a>
+			</div>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<div class="mb-3 flex items-center justify-between">
+					<h2 class="text-lg font-medium text-sentinel-900">Ativos</h2>
+					<span class="text-sm text-sentinel-500">{ strconv.Itoa(len(in.Active)) } abertos</span>
+				</div>
+				if len(in.Active) == 0 {
+					<p class="text-sm text-sentinel-500">Nenhum alerta aberto. ✓</p>
+				} else {
+					<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+						<thead class="text-left text-xs uppercase tracking-wider text-sentinel-500">
+							<tr>
+								<th class="px-2 py-2">Severidade</th>
+								<th class="px-2 py-2">Quando</th>
+								<th class="px-2 py-2">Device</th>
+								<th class="px-2 py-2">Status</th>
+								<th class="px-2 py-2 text-right">Ações</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-sentinel-50">
+							for _, a := range in.Active {
+								@AlertRow(in.CSRF, in.CanAck, a)
+							}
+						</tbody>
+					</table>
+				}
+			</section>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<div class="mb-3 flex items-center justify-between">
+					<h2 class="text-lg font-medium text-sentinel-900">Regras</h2>
+					<span class="text-sm text-sentinel-500">{ strconv.Itoa(len(in.Rules)) } cadastradas</span>
+				</div>
+				if len(in.Rules) == 0 {
+					<p class="text-sm text-sentinel-500">Nenhuma regra cadastrada.</p>
+				} else {
+					<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+						<thead class="text-left text-xs uppercase tracking-wider text-sentinel-500">
+							<tr>
+								<th class="px-2 py-2">Nome</th>
+								<th class="px-2 py-2">Métrica</th>
+								<th class="px-2 py-2">Condição</th>
+								<th class="px-2 py-2">Severidade</th>
+								<th class="px-2 py-2">Cooldown</th>
+								<th class="px-2 py-2">Status</th>
+								<th class="px-2 py-2 text-right">Ações</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-sentinel-50">
+							for _, r := range in.Rules {
+								<tr>
+									<td class="px-2 py-2 font-medium text-sentinel-900">
+										<a href={ templ.URL("/alerts/rules/" + r.ID.String() + "/edit") } class="hover:underline">{ r.Name }</a>
+										if r.Description != "" {
+											<div class="text-xs text-sentinel-500">{ r.Description }</div>
+										}
+									</td>
+									<td class="px-2 py-2 font-mono text-xs">{ string(r.Condition.Metric) }</td>
+									<td class="px-2 py-2 font-mono text-xs">
+										{ string(r.Condition.Aggregation) } { string(r.Condition.Operator) } { formatThreshold(r.Condition.Threshold) }
+										<span class="text-sentinel-500"> ({ r.Condition.Window })</span>
+									</td>
+									<td class="px-2 py-2">@severityBadge(r.Severity)</td>
+									<td class="px-2 py-2 text-sentinel-700">{ strconv.Itoa(r.CooldownMinutes) }min</td>
+									<td class="px-2 py-2">
+										if r.IsActive {
+											<span class="inline-flex rounded-full bg-green-50 px-2 text-xs text-green-700">ativa</span>
+										} else {
+											<span class="inline-flex rounded-full bg-sentinel-50 px-2 text-xs text-sentinel-500">inativa</span>
+										}
+									</td>
+									<td class="px-2 py-2 text-right">
+										<a href={ templ.URL("/alerts/rules/" + r.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</section>
+		</div>
+	}
+}
+
+templ AlertRow(csrf string, canAck bool, a domain.Alert) {
+	<tr id={ "alert-row-" + a.ID.String() }>
+		<td class="px-2 py-2">@severityBadge(a.Severity)</td>
+		<td class="px-2 py-2 text-sentinel-700 text-xs">{ a.FiredAt.Format("02/01 15:04") }</td>
+		<td class="px-2 py-2 font-mono text-xs">
+			if a.DeviceID != nil {
+				<a href={ templ.URL("/devices/" + a.DeviceID.String()) } class="hover:underline">{ a.DeviceID.String()[:8] }…</a>
+			} else {
+				—
+			}
+		</td>
+		<td class="px-2 py-2">
+			if a.AcknowledgedAt != nil {
+				<span class="inline-flex rounded-full bg-blue-50 px-2 text-xs text-blue-700">reconhecido</span>
+			} else {
+				<span class="inline-flex rounded-full bg-amber-50 px-2 text-xs text-amber-700">não reconhecido</span>
+			}
+		</td>
+		<td class="px-2 py-2 text-right">
+			if canAck && a.AcknowledgedAt == nil {
+				<button
+					type="button"
+					hx-post={ "/alerts/" + a.ID.String() + "/ack" }
+					hx-headers={ `{"X-CSRF-Token": "` + csrf + `"}` }
+					hx-target={ "#alert-row-" + a.ID.String() }
+					hx-swap="outerHTML"
+					class="text-sm text-sentinel-700 hover:text-sentinel-900"
+				>Ack</button>
+			}
+			if canAck {
+				<button
+					type="button"
+					hx-post={ "/alerts/" + a.ID.String() + "/resolve" }
+					hx-headers={ `{"X-CSRF-Token": "` + csrf + `"}` }
+					hx-target={ "#alert-row-" + a.ID.String() }
+					hx-swap="outerHTML"
+					class="ml-2 text-sm text-emerald-700 hover:text-emerald-900"
+				>Resolver</button>
+			}
+		</td>
+	</tr>
+}
+
+templ severityBadge(s domain.Severity) {
+	if s == domain.SeverityCritical {
+		<span class="inline-flex rounded-full bg-red-100 px-2 text-xs font-medium text-red-700">crítico</span>
+	} else if s == domain.SeverityWarning {
+		<span class="inline-flex rounded-full bg-amber-100 px-2 text-xs font-medium text-amber-700">warning</span>
+	} else {
+		<span class="inline-flex rounded-full bg-sentinel-100 px-2 text-xs font-medium text-sentinel-700">info</span>
+	}
+}
+
+func formatThreshold(t float64) string {
+	if t == float64(int64(t)) {
+		return strconv.FormatInt(int64(t), 10)
+	}
+	return strconv.FormatFloat(t, 'f', 2, 64)
+}

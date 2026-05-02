@@ -1,0 +1,123 @@
+package alerts
+
+import (
+	"strconv"
+
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+	domain "github.com/celinet/sentinel-acs/internal/domain/alerting"
+)
+
+// FormInput agrega o necessário para new/edit. ConditionJSON é editado
+// como texto bruto — para o MVP basta; UI declarativa fica como upgrade.
+type FormInput struct {
+	CSRF            string
+	RuleID          string
+	Name            string
+	Description     string
+	Severity        domain.Severity
+	IsActive        bool
+	CooldownMinutes int
+	ConditionJSON   string
+	ChannelsJSON    string
+	Errors          []string
+}
+
+templ Form(in FormInput) {
+	@layouts.Base(formTitle(in)) {
+		<div class="mx-auto max-w-3xl space-y-6">
+			<h1 class="text-2xl font-semibold text-sentinel-900">{ formTitle(in) }</h1>
+
+			if len(in.Errors) > 0 {
+				<div class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+					<ul class="list-disc pl-5">
+						for _, e := range in.Errors {
+							<li>{ e }</li>
+						}
+					</ul>
+				</div>
+			}
+
+			<form method="post" action={ formAction(in) } class="space-y-5 rounded-lg bg-white p-6 shadow">
+				<input type="hidden" name="_csrf" value={ in.CSRF }/>
+
+				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+					<label class="block">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Nome</span>
+						<input type="text" name="name" value={ in.Name } required class="input mt-1 w-full"/>
+					</label>
+					<label class="block">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Severidade</span>
+						<select name="severity" class="input mt-1 w-full">
+							@severityOption("info", in.Severity)
+							@severityOption("warning", in.Severity)
+							@severityOption("critical", in.Severity)
+						</select>
+					</label>
+					<label class="block md:col-span-2">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Descrição</span>
+						<input type="text" name="description" value={ in.Description } class="input mt-1 w-full"/>
+					</label>
+					<label class="block">
+						<span class="text-xs uppercase tracking-wide text-sentinel-500">Cooldown (minutos)</span>
+						<input type="number" name="cooldown_minutes" value={ strconv.Itoa(in.CooldownMinutes) } min="0" max="1440" class="input mt-1 w-full"/>
+					</label>
+					<label class="inline-flex items-center gap-2 mt-6">
+						<input type="checkbox" name="is_active" value="1" checked?={ in.IsActive }/>
+						<span>Ativa</span>
+					</label>
+				</div>
+
+				<label class="block">
+					<span class="text-xs uppercase tracking-wide text-sentinel-500">Condição (JSON DSL)</span>
+					<textarea name="condition" rows="10" required class="input mt-1 w-full font-mono text-xs">{ in.ConditionJSON }</textarea>
+					<span class="text-xs text-sentinel-500">
+						Exemplo: { conditionExample() }
+					</span>
+				</label>
+
+				<label class="block">
+					<span class="text-xs uppercase tracking-wide text-sentinel-500">Canais (JSON array)</span>
+					<textarea name="channels" rows="4" class="input mt-1 w-full font-mono text-xs">{ in.ChannelsJSON }</textarea>
+					<span class="text-xs text-sentinel-500">
+						Exemplo: { channelsExample() }
+					</span>
+				</label>
+
+				<div class="flex justify-end gap-2">
+					<a href="/alerts" class="btn-ghost">Cancelar</a>
+					<button type="submit" class="btn-primary">Salvar</button>
+				</div>
+			</form>
+		</div>
+	}
+}
+
+templ severityOption(value string, current domain.Severity) {
+	if string(current) == value {
+		<option value={ value } selected>{ value }</option>
+	} else {
+		<option value={ value }>{ value }</option>
+	}
+}
+
+func formTitle(in FormInput) string {
+	if in.RuleID == "" {
+		return "Nova regra"
+	}
+	return "Editar regra"
+}
+
+func formAction(in FormInput) templ.SafeURL {
+	if in.RuleID == "" {
+		return templ.URL("/alerts/rules")
+	}
+	return templ.URL("/alerts/rules/" + in.RuleID)
+}
+
+func conditionExample() string {
+	return `{"type":"aggregate","metric":"device_status","filter":{"status":"offline"},"aggregation":"count_pct","operator":">","threshold":10,"window":"5m"}`
+}
+
+func channelsExample() string {
+	return `[{"type":"whatsapp","target":"+5579999990000"},{"type":"smtp","target":"oncall@empresa.com.br"}]`
+}

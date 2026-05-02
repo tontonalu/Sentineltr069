@@ -198,6 +198,14 @@ func run() error {
 		historyH = &handlers.HistoryHandler{Devices: deviceRepo, Telemetry: telemetryRepo}
 	}
 
+	// Alertas — repos + handler. Engine roda no worker, não aqui.
+	var alertsH *handlers.AlertsHandler
+	if pgPool != nil {
+		ruleRepo := pgdb.NewRuleRepo(pgPool)
+		alertRepo := pgdb.NewAlertRepo(pgPool)
+		alertsH = &handlers.AlertsHandler{Rules: ruleRepo, Alerts: alertRepo}
+	}
+
 	// Integrações — server só mostra status/config; sync acontece no worker.
 	enabledPlugins := map[string]handlers.EnabledPlugin{}
 	if cfg.Voalle.Enabled() {
@@ -350,6 +358,27 @@ func run() error {
 				r.Get("/batches/{id}", provH.BatchDetail)
 				r.With(mw.RequirePermission("provisioning", "approve")).
 					Post("/batches/{id}/approve", provH.ApproveBatch)
+			})
+		}
+
+		// Alertas — listagem + CRUD de regras + ack/resolve.
+		if alertsH != nil {
+			r.Route("/alerts", func(r chi.Router) {
+				r.With(mw.RequirePermission("alert", "read")).Get("/", alertsH.List)
+
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("alert", "manage"))
+					r.Get("/rules/new", alertsH.NewForm)
+					r.Post("/rules", alertsH.Create)
+					r.Get("/rules/{id}/edit", alertsH.EditForm)
+					r.Post("/rules/{id}", alertsH.Update)
+				})
+
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("alert", "acknowledge"))
+					r.Post("/{id}/ack", alertsH.Acknowledge)
+					r.Post("/{id}/resolve", alertsH.Resolve)
+				})
 			})
 		}
 

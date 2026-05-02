@@ -26,7 +26,49 @@ type Config struct {
 	Redis    Redis    `koanf:"redis"`
 	GenieACS GenieACS `koanf:"genieacs"`
 	Voalle   Voalle   `koanf:"voalle"`
+	Notifier Notifier `koanf:"notifier"`
 	Log      Log      `koanf:"log"`
+}
+
+// Notifier agrupa configurações dos canais de alerta. Cada um pode ser
+// habilitado ou não independentemente — engine pula canais não configurados.
+type Notifier struct {
+	WhatsApp WhatsAppCfg `koanf:"whatsapp"`
+	Telegram TelegramCfg `koanf:"telegram"`
+	SMTP     SMTPCfg     `koanf:"smtp"`
+}
+
+type WhatsAppCfg struct {
+	BaseURL  string `koanf:"base_url"`
+	APIKey   string `koanf:"api_key"`
+	Instance string `koanf:"instance"`
+}
+
+type TelegramCfg struct {
+	BotToken string `koanf:"bot_token"`
+}
+
+type SMTPCfg struct {
+	Host        string `koanf:"host"`
+	// Port aceita string para permitir env var; PortNum() faz o parse seguro.
+	Port        string `koanf:"port"`
+	Username    string `koanf:"username"`
+	Password    string `koanf:"password"`
+	FromAddress string `koanf:"from_address"`
+	FromName    string `koanf:"from_name"`
+}
+
+// PortNum devolve o port como int. Default 587 (STARTTLS).
+func (s SMTPCfg) PortNum() int {
+	if s.Port == "" {
+		return 587
+	}
+	var n int
+	_, _ = fmt.Sscanf(s.Port, "%d", &n)
+	if n <= 0 || n > 65535 {
+		return 587
+	}
+	return n
 }
 
 type App struct {
@@ -130,6 +172,18 @@ var envBindings = map[string]string{
 	"VOALLE_CLIENT_SECRET":"voalle.client_secret",
 	"VOALLE_TIMEOUT":      "voalle.timeout",
 	"VOALLE_SYNC_INTERVAL":"voalle.sync_interval",
+
+	"NOTIFIER_WHATSAPP_BASE_URL": "notifier.whatsapp.base_url",
+	"NOTIFIER_WHATSAPP_API_KEY":  "notifier.whatsapp.api_key",
+	"NOTIFIER_WHATSAPP_INSTANCE": "notifier.whatsapp.instance",
+	"NOTIFIER_TELEGRAM_BOT_TOKEN": "notifier.telegram.bot_token",
+	"NOTIFIER_SMTP_HOST":         "notifier.smtp.host",
+	"NOTIFIER_SMTP_PORT":         "notifier.smtp.port",
+	"NOTIFIER_SMTP_USERNAME":     "notifier.smtp.username",
+	"NOTIFIER_SMTP_PASSWORD":     "notifier.smtp.password",
+	"NOTIFIER_SMTP_FROM_ADDRESS": "notifier.smtp.from_address",
+	"NOTIFIER_SMTP_FROM_NAME":    "notifier.smtp.from_name",
+
 	"LOG_LEVEL":           "log.level",
 	"LOG_FORMAT":          "log.format",
 }

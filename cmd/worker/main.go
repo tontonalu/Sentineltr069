@@ -5,9 +5,7 @@
 //   - Sync periódico com ERP Voalle (Fase 2.5)
 //   - Provisioning queue consumer (CP-3.5) — Redis Stream + polling fallback
 //   - Telemetry collector (CP-4.3) — coleta a cada 5 min em chunks paralelos
-//
-// Próximos roles (Fase 5):
-//   - Alert engine evaluator (CP-5.3)
+//   - Alert engine evaluator (CP-5.3) — tick de 1 min, dispara WhatsApp/Telegram/SMTP
 package main
 
 import (
@@ -22,11 +20,15 @@ import (
 
 	"github.com/google/uuid"
 
+	alertapp "github.com/celinet/sentinel-acs/internal/application/alerting"
 	appintegration "github.com/celinet/sentinel-acs/internal/application/integration"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
 	teleapp "github.com/celinet/sentinel-acs/internal/application/telemetry"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/erp"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/notifier/smtp"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/notifier/telegram"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/notifier/whatsapp"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
 	pgdb "github.com/celinet/sentinel-acs/internal/infrastructure/postgres"
 	rds "github.com/celinet/sentinel-acs/internal/infrastructure/redis"
@@ -55,6 +57,11 @@ const (
 	// Telemetry collector: tick a cada 5 min (alinhado com §10.1 do doc).
 	telemetryTickInterval = 5 * time.Minute
 	telemetryTickTimeout  = 4 * time.Minute
+
+	// Alerting engine: tick 1 min (CP-5.3). Avalia regras vs métricas atuais
+	// e dispara notificações respeitando cooldown.
+	alertTickInterval = 1 * time.Minute
+	alertTickTimeout  = 45 * time.Second
 )
 
 func main() {
@@ -117,6 +124,17 @@ func run() error {
 		OnlineThreshold:  offlineThreshold,
 	})
 
+	// Alerting engine — repos + composite source (devices + telemetry) +
+	// notifiers configurados via env. Notifiers desabilitados são `nil`
+	// e ignorados pelo NewEngine.
+	ruleRepo := pgdb.NewRuleRepo(pgPool)
+	alertRepo := pgdb.NewAlertRepo(pgPool)
+	notifRepo := pgdb.NewNotificationRepo(pgPool)
+	source := alertapp.NewCompositeSource(deviceRepo, telemetryRepo)
+
+	notifiers := buildNotifiers(cfg, log)
+	alertEngine := alertapp.NewEngine(ruleRepo, alertRepo, notifRepo, source, notifiers...)
+
 	tracker := appintegration.NewStatusTracker()
 
 	// Voalle (opcional): se configurado, sobe um ticker dedicado.
@@ -147,6 +165,9 @@ func run() error {
 
 	telemetryTicker := time.NewTicker(telemetryTickInterval)
 	defer telemetryTicker.Stop()
+
+	alertTicker := time.NewTicker(alertTickInterval)
+	defer alertTicker.Stop()
 
 	// Voalle ticker — só ligamos se o plugin foi instanciado.
 	var voalleTicker *time.Ticker
@@ -186,6 +207,8 @@ func run() error {
 			runVoalle(rootCtx, voalleSync, log)
 		case <-telemetryTicker.C:
 			runTelemetry(rootCtx, collector, log)
+		case <-alertTicker.C:
+			runAlertEngine(rootCtx, alertEngine, log)
 		case sig := <-stop:
 			log.Info("shutdown signal received", "signal", sig.String())
 			cancel()
@@ -315,6 +338,67 @@ func runVoalle(ctx context.Context, svc *appintegration.ERPSyncService, log *slo
 			return
 		}
 		log.Error("voalle sync failed", "err", err)
+	}
+}
+
+// buildNotifiers instancia adapters habilitados via config. Cada um pode
+// estar ausente — o engine pula canais sem notifier configurado.
+func buildNotifiers(cfg *config.Config, log *slog.Logger) []alertapp.Notifier {
+	var out []alertapp.Notifier
+	if cfg.Notifier.WhatsApp.BaseURL != "" {
+		out = append(out, whatsapp.New(whatsapp.Config{
+			BaseURL:  cfg.Notifier.WhatsApp.BaseURL,
+			APIKey:   cfg.Notifier.WhatsApp.APIKey,
+			Instance: cfg.Notifier.WhatsApp.Instance,
+		}))
+		log.Info("whatsapp notifier habilitado", "base_url", cfg.Notifier.WhatsApp.BaseURL)
+	}
+	if cfg.Notifier.Telegram.BotToken != "" {
+		out = append(out, telegram.New(telegram.Config{
+			BotToken: cfg.Notifier.Telegram.BotToken,
+		}))
+		log.Info("telegram notifier habilitado")
+	}
+	if cfg.Notifier.SMTP.Host != "" {
+		out = append(out, smtp.New(smtp.Config{
+			Host:        cfg.Notifier.SMTP.Host,
+			Port:        cfg.Notifier.SMTP.PortNum(),
+			Username:    cfg.Notifier.SMTP.Username,
+			Password:    cfg.Notifier.SMTP.Password,
+			FromAddress: cfg.Notifier.SMTP.FromAddress,
+			FromName:    cfg.Notifier.SMTP.FromName,
+		}))
+		log.Info("smtp notifier habilitado", "host", cfg.Notifier.SMTP.Host)
+	}
+	if len(out) == 0 {
+		log.Warn("nenhum notifier configurado — alertas serão criados mas não enviados")
+	}
+	return out
+}
+
+func runAlertEngine(ctx context.Context, e *alertapp.Engine, log *slog.Logger) {
+	if e == nil {
+		return
+	}
+	tCtx, cancel := context.WithTimeout(ctx, alertTickTimeout)
+	defer cancel()
+	res, err := e.Tick(tCtx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Error("alert tick failed", "err", err)
+		return
+	}
+	if res.AlertsFired > 0 || res.AlertsResolved > 0 || res.Errors > 0 {
+		log.Info("alert tick",
+			"rules", res.RulesEvaluated,
+			"fired", res.AlertsFired,
+			"resolved", res.AlertsResolved,
+			"notifications_ok", res.NotificationsOK,
+			"errors", res.Errors,
+			"duration", res.Duration.String(),
+		)
 	}
 }
 
