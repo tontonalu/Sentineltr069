@@ -1,0 +1,45 @@
+package components
+
+// Badge — pill colorida. tone ∈ {success, warning, danger, info, neutral}.
+// Tons inválidos caem em neutral (não falha render).
+templ Badge(text, tone string) {
+	<span class={ "badge", badgeToneClass(tone) }>{ text }</span>
+}
+
+// BadgeWithDot — variante com bolinha colorida (visual de status online/offline).
+templ BadgeWithDot(text, tone string) {
+	<span class={ "badge", badgeToneClass(tone) }>
+		<span class={ "h-1.5 w-1.5 rounded-full", dotToneClass(tone) }></span>
+		{ text }
+	</span>
+}
+
+func badgeToneClass(tone string) string {
+	switch tone {
+	case "success":
+		return "badge-success"
+	case "warning":
+		return "badge-warning"
+	case "danger":
+		return "badge-danger"
+	case "info":
+		return "badge-info"
+	default:
+		return "badge-neutral"
+	}
+}
+
+func dotToneClass(tone string) string {
+	switch tone {
+	case "success":
+		return "bg-success-500"
+	case "warning":
+		return "bg-warning-500"
+	case "danger":
+		return "bg-danger-500"
+	case "info":
+		return "bg-info-500"
+	default:
+		return "bg-sentinel-500"
+	}
+}

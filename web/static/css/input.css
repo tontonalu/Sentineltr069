@@ -10,16 +10,60 @@
   body {
     @apply bg-sentinel-50 text-sentinel-900 font-sans;
   }
+  *:focus-visible {
+    @apply outline-none ring-2 ring-sentinel-700/40 ring-offset-2 ring-offset-sentinel-50;
+  }
 }
 
 @layer components {
+  /* Botões */
   .btn {
-    @apply inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50 disabled:pointer-events-none;
   }
-  .btn-primary {
-    @apply btn bg-sentinel-700 text-white hover:bg-sentinel-900;
+  .btn-primary   { @apply btn bg-sentinel-700 text-white hover:bg-sentinel-900; }
+  .btn-secondary { @apply btn border border-sentinel-100 bg-white text-sentinel-700 hover:bg-sentinel-50; }
+  .btn-ghost     { @apply btn text-sentinel-700 hover:bg-sentinel-100; }
+  .btn-danger    { @apply btn bg-danger-700 text-white hover:bg-danger-900; }
+
+  /* Cards */
+  .card        { @apply rounded-xl border border-sentinel-100 bg-white shadow-card; }
+  .card-header { @apply flex items-center justify-between px-5 py-4 border-b border-sentinel-100; }
+  .card-body   { @apply px-5 py-4; }
+
+  /* Badges (cores aplicadas via "badge-{tone}") */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset;
   }
-  .btn-ghost {
-    @apply btn text-sentinel-700 hover:bg-sentinel-100;
+  .badge-neutral { @apply bg-sentinel-50  text-sentinel-700 ring-sentinel-100; }
+  .badge-success { @apply bg-success-50   text-success-700  ring-success-100;  }
+  .badge-warning { @apply bg-warning-50   text-warning-700  ring-warning-100;  }
+  .badge-danger  { @apply bg-danger-50    text-danger-700   ring-danger-100;   }
+  .badge-info    { @apply bg-info-50      text-info-700     ring-info-100;     }
+
+  /* Forms */
+  .label {
+    @apply block text-sm font-medium text-sentinel-700 mb-1;
+  }
+  .input {
+    @apply block w-full rounded-md border border-sentinel-100 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-sentinel-500/60 focus:border-sentinel-700 focus:ring-0;
+  }
+
+  /* Tabelas */
+  .table          { @apply w-full text-sm; }
+  .table thead th { @apply px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-sentinel-500 border-b border-sentinel-100; }
+  .table tbody td { @apply px-4 py-3 border-b border-sentinel-100/70; }
+  .table-row-hover tbody tr { @apply hover:bg-sentinel-50/60 transition; }
+
+  /* Navegação (sidebar) */
+  .nav-link {
+    @apply flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sentinel-500 hover:bg-sentinel-100 hover:text-sentinel-900 transition;
+  }
+  .nav-link-active {
+    @apply bg-sentinel-900 text-white hover:bg-sentinel-900 hover:text-white;
+  }
+
+  /* KBD (atalhos visuais — ainda que não usemos shortcuts no v1, primitiva pronta) */
+  .kbd {
+    @apply inline-flex items-center rounded border border-sentinel-100 bg-white px-1.5 py-0.5 text-xs font-mono text-sentinel-700 shadow-sm;
   }
 }

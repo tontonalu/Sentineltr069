@@ -35,7 +35,24 @@
       "Bash(sed -i.bak \"s/go-version: '1.23'/go-version: '1.25'/g\" .github/workflows/ci.yml)",
       "Bash(sed -i.bak \"s/golang:1.23-alpine/golang:1.25-alpine/g\" deploy/Dockerfile)",
       "Bash(echo \"exit:$?\")",
-      "Bash(govulncheck ./...)"
+      "Bash(govulncheck ./...)",
+      "Bash(curl -s \"https://hub.docker.com/v2/repositories/drumsergio/genieacs/tags/?page_size=25&ordering=last_updated\")",
+      "Bash(python3 -c \"import sys, json; data = json.load\\(sys.stdin\\); [print\\(t['name'], '-', t.get\\('last_updated', ''\\)[:10]\\) for t in data.get\\('results', []\\)]\")",
+      "Bash(grep -nA 15 \"^  mongo:\" /Users/tonton/Documents/GitHub/Sentineltr069/deploy/docker-compose.yml)",
+      "Bash(gh run *)",
+      "Bash(python3 -c \"import sys, json; [print\\(r['createdAt'][:19], r['status'], r['conclusion'], r['headSha'][:7]\\) for r in json.load\\(sys.stdin\\)]\")",
+      "Bash(curl -s \"https://hub.docker.com/v2/repositories/drumsergio/genieacs/\")",
+      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); print\\(d.get\\('description', 'no desc'\\)[:600]\\)\")",
+      "Bash(sudo docker *)",
+      "Bash(curl -s \"https://api.github.com/repos/tontonalu/Sentineltr069/actions/runs?per_page=5\")",
+      "Bash(python3 -c ' *)",
+      "Bash(grep \"\\\\.go$\")",
+      "Read(//Users/tonto/Documents/GitHub/Sentineltr069/internal/infrastructure/postgres/**)",
+      "Bash(xargs ls *)",
+      "Read(//Users/tonto/Documents/GitHub/Sentineltr069/**)",
+      "Bash(go run *)",
+      "Bash(make assets-vendor *)",
+      "Bash(tailwindcss -i static/css/input.css -o static/css/app.css --minify)"
     ]
   }
 }

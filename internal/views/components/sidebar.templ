@@ -1,0 +1,65 @@
+package components
+
+import "strings"
+
+// Sidebar — barra lateral fixa em desktop, drawer Alpine no mobile.
+//
+// currentPath vem do middleware NavContext (mw.PathFromContext). Cada NavLink
+// é marcado active via prefixo — "/devices" também ativa "/devices/abc-123".
+// O caso especial "/" só ativa exatamente "/", senão acenderia em toda página.
+//
+// Mobile: aciona-se via dispatch("toggle-sidebar") emitido pelo botão hamburger
+// no header (base.templ). Overlay escuro fecha ao clicar.
+templ Sidebar(currentPath string) {
+	<div
+		x-data="{ open: false }"
+		x-on:toggle-sidebar.window="open = !open"
+		x-on:keydown.escape.window="open = false"
+	>
+		// Overlay (mobile)
+		<div
+			x-show="open"
+			x-cloak
+			x-transition.opacity
+			x-on:click="open = false"
+			class="fixed inset-0 z-30 bg-sentinel-900/50 lg:hidden"
+		></div>
+		// Painel
+		<aside
+			class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-sentinel-100 bg-white transition-transform lg:translate-x-0"
+			x-bind:class="open ? 'translate-x-0' : ''"
+		>
+			// Brand
+			<div class="flex h-14 items-center gap-2 border-b border-sentinel-100 px-5">
+				<div class="flex h-7 w-7 items-center justify-center rounded-md bg-sentinel-900 text-white">
+					@Icon("shield", "h-4 w-4")
+				</div>
+				<span class="text-sm font-semibold text-sentinel-900">SentinelACS</span>
+			</div>
+			// Nav principal
+			<nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+				@NavLink("/", "Início", "home", currentPath == "/")
+				@NavLink("/devices", "Devices", "router", isPathActive(currentPath, "/devices"))
+				@NavLink("/templates", "Templates", "file-cog", isPathActive(currentPath, "/templates"))
+				@NavLink("/alerts", "Alertas", "bell", isPathActive(currentPath, "/alerts"))
+				@NavLink("/provisioning/jobs", "Provisionamento", "clock", isPathActive(currentPath, "/provisioning"))
+				@NavLink("/integrations", "Integrações", "plug", isPathActive(currentPath, "/integrations"))
+				<div class="my-2 border-t border-sentinel-100"></div>
+				@NavLink("/admin/users", "Usuários", "users", isPathActive(currentPath, "/admin/users"))
+			</nav>
+			// Rodapé
+			<div class="border-t border-sentinel-100 px-3 py-4">
+				@NavLink("/settings/totp", "Configurações", "settings", isPathActive(currentPath, "/settings"))
+			</div>
+		</aside>
+	</div>
+}
+
+// isPathActive — true se currentPath bate exatamente com prefix OU começa com "prefix/".
+// Evita falso-positivo onde "/devices" ativaria "/devices-other".
+func isPathActive(currentPath, prefix string) bool {
+	if currentPath == prefix {
+		return true
+	}
+	return strings.HasPrefix(currentPath, prefix+"/")
+}

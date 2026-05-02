@@ -19,7 +19,8 @@ RUN go install github.com/a-h/templ/cmd/templ@latest && \
     templ generate
 
 # Tailwind CLI standalone (sem precisar instalar Node) gera web/static/css/app.css.
-# htmx.min.js é baixado para web/static/js/. Ambos entram no //go:embed do binário.
+# htmx.min.js + alpine.min.js baixados para web/static/js/. Tudo entra no //go:embed.
+# Versões pinadas para reproducibilidade; alterar exige bump consciente.
 RUN curl -fsSL -o /usr/local/bin/tailwindcss \
         "https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64" && \
     chmod +x /usr/local/bin/tailwindcss && \
@@ -27,7 +28,8 @@ RUN curl -fsSL -o /usr/local/bin/tailwindcss \
     /usr/local/bin/tailwindcss -i ./static/css/input.css -o ./static/css/app.css --minify && \
     cd .. && \
     mkdir -p web/static/js && \
-    curl -fsSL -o web/static/js/htmx.min.js "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+    curl -fsSL -o web/static/js/htmx.min.js   "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" && \
+    curl -fsSL -o web/static/js/alpine.min.js "https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"
 
 # Build dos 3 binários estáticos.
 # -trimpath remove caminhos absolutos do binário (anti-forensics + reproducible builds).

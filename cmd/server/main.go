@@ -199,10 +199,13 @@ func run() error {
 	}
 
 	// Alertas — repos + handler. Engine roda no worker, não aqui.
-	var alertsH *handlers.AlertsHandler
+	var (
+		alertsH   *handlers.AlertsHandler
+		alertRepo *pgdb.AlertRepo // hoist para reuso pelo dashboard
+	)
 	if pgPool != nil {
 		ruleRepo := pgdb.NewRuleRepo(pgPool)
-		alertRepo := pgdb.NewAlertRepo(pgPool)
+		alertRepo = pgdb.NewAlertRepo(pgPool)
 		alertsH = &handlers.AlertsHandler{Rules: ruleRepo, Alerts: alertRepo}
 	}
 
@@ -215,6 +218,17 @@ func run() error {
 		}
 	}
 	integrationsH := &handlers.IntegrationsHandler{EnabledPlugins: enabledPlugins}
+
+	// Dashboard — home autenticada. Reusa repos já construídos; nil tolerado.
+	dashboardH := &handlers.DashboardHandler{
+		Devices:  deviceRepo,
+		Alerts:   alertRepo,
+		Jobs:     jobRepo,
+		Batches:  batchRepo,
+		Postgres: pgPool,
+		Redis:    redisClient,
+		GenieACS: genieClient,
+	}
 
 	authDeps := mw.AuthDeps{Login: loginSvc, Assignments: assignRepo, LoginURL: "/login"}
 
@@ -283,16 +297,11 @@ func run() error {
 		if loginSvc != nil {
 			r.Use(mw.RequireAuth(authDeps))
 		}
+		// NavContext injeta r.URL.Path no contexto pra que layouts.Base possa
+		// marcar o link ativo na sidebar sem mudar a assinatura Base(title).
+		r.Use(mw.NavContext)
 
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			user, _ := mw.UserFromContext(r.Context())
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if user != nil {
-				_, _ = w.Write([]byte("<h1>SentinelACS</h1><p>Bem-vindo, " + user.FullName + "</p>"))
-			} else {
-				_, _ = w.Write([]byte("<h1>SentinelACS</h1>"))
-			}
-		})
+		r.Get("/", dashboardH.Index)
 
 		// Settings — TOTP enroll
 		if totpSvc != nil {

@@ -485,3 +485,23 @@ func (r *DeviceRepo) MarkInform(ctx context.Context, genieacsID string, lastInfo
 		 WHERE genieacs_id = $1`, genieacsID, lastInform, lastBoot, fwVersion)
 	return err
 }
+
+// CountByStatus retorna {status -> count}. Usado pelo dashboard para o card
+// "Devices online/offline". Query GROUP BY barata em índice de status.
+func (r *DeviceRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx, `SELECT status, COUNT(*) FROM devices GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, 4)
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, rows.Err()
+}

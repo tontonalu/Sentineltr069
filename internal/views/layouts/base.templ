@@ -1,8 +1,13 @@
 package layouts
 
-// Base é o layout principal — usado por todas as páginas que precisam
-// de chrome (header, footer, etc). Páginas vazias (login, 404) podem
-// preferir Bare se quiserem só o esqueleto HTML.
+import (
+	"github.com/celinet/sentinel-acs/internal/views/components"
+	mw "github.com/celinet/sentinel-acs/internal/transport/http/middleware"
+)
+
+// Base é o layout principal — sidebar fixa em desktop, drawer em mobile.
+// Path corrente e usuário vêm do contexto (mw.NavContext + mw.RequireAuth)
+// para evitar quebrar a assinatura Base(title) usada em ~14 call sites.
 templ Base(title string) {
 	<!DOCTYPE html>
 	<html lang="pt-BR">
@@ -14,28 +19,40 @@ templ Base(title string) {
 			<link rel="stylesheet" href="/static/css/app.css"/>
 			<script src="/static/js/htmx.min.js" defer></script>
 			<script defer src="/static/js/alpine.min.js"></script>
+			<style>
+				[x-cloak] { display: none !important; }
+			</style>
 		</head>
-		<body class="min-h-screen">
-			<header class="border-b border-sentinel-100 bg-white px-6 py-3">
-				<div class="flex items-center justify-between">
-					<a href="/" class="text-lg font-semibold text-sentinel-900">SentinelACS</a>
-					<nav class="text-sm text-sentinel-500">
-						<a href="/devices" class="hover:text-sentinel-900">Devices</a>
-						<a href="/templates" class="ml-4 hover:text-sentinel-900">Templates</a>
-						<a href="/alerts" class="ml-4 hover:text-sentinel-900">Alertas</a>
-						<a href="/admin/users" class="ml-4 hover:text-sentinel-900">Usuários</a>
-						<a href="/logout" class="ml-4 hover:text-sentinel-900">Sair</a>
-					</nav>
-				</div>
-			</header>
-			<main class="px-6 py-8">
-				{ children... }
-			</main>
+		<body class="min-h-screen bg-sentinel-50">
+			{{ currentPath := mw.PathFromContext(ctx) }}
+			{{ user, _ := mw.UserFromContext(ctx) }}
+			@components.Sidebar(currentPath)
+			<div class="flex min-h-screen flex-col lg:pl-64">
+				<header class="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-sentinel-100 bg-white/95 px-6 backdrop-blur">
+					<button
+						type="button"
+						class="rounded-md p-1.5 text-sentinel-700 hover:bg-sentinel-100 lg:hidden"
+						x-data
+						x-on:click="$dispatch('toggle-sidebar')"
+						aria-label="Abrir menu"
+					>
+						@components.Icon("menu", "h-5 w-5")
+					</button>
+					<div class="flex-1"></div>
+					@components.UserMenu(user)
+				</header>
+				<main class="flex-1 px-6 py-8">
+					<div class="mx-auto max-w-7xl">
+						{ children... }
+					</div>
+				</main>
+			</div>
+			<div id="toast-region" class="fixed top-4 right-4 z-50 space-y-2"></div>
 		</body>
 	</html>
 }
 
-// Bare é um layout sem header/footer, usado por /login e páginas de erro.
+// Bare é um layout sem chrome, usado por /login, /login/totp e páginas de erro.
 templ Bare(title string) {
 	<!DOCTYPE html>
 	<html lang="pt-BR">
@@ -47,7 +64,7 @@ templ Bare(title string) {
 			<link rel="stylesheet" href="/static/css/app.css"/>
 			<script src="/static/js/htmx.min.js" defer></script>
 		</head>
-		<body class="min-h-screen flex items-center justify-center">
+		<body class="min-h-screen flex items-center justify-center bg-sentinel-50">
 			{ children... }
 		</body>
 	</html>

@@ -4,42 +4,31 @@ import (
 	"strconv"
 
 	domain "github.com/celinet/sentinel-acs/internal/domain/identity"
+	"github.com/celinet/sentinel-acs/internal/views/components"
 	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
 // UsersList renderiza a lista paginada de usuários com ações inline.
 templ UsersList(csrfToken string, users []domain.User, total, page, pageSize int) {
 	@layouts.Base("Usuários") {
-		<div class="space-y-6">
-			<div class="flex items-center justify-between">
-				<h1 class="text-2xl font-semibold text-sentinel-900">Usuários</h1>
-				<div class="flex items-center gap-4">
-					<span class="text-sm text-sentinel-500">{ strconv.Itoa(total) } no total</span>
-					<a href="/admin/users/new" class="btn-primary">Novo usuário</a>
-				</div>
-			</div>
-			<div class="overflow-hidden rounded-lg bg-white shadow">
-				<table class="min-w-full divide-y divide-sentinel-100">
-					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
-						<tr>
-							<th class="px-4 py-3">Nome</th>
-							<th class="px-4 py-3">E-mail</th>
-							<th class="px-4 py-3">2FA</th>
-							<th class="px-4 py-3">Status</th>
-							<th class="px-4 py-3">Último login</th>
-							<th class="px-4 py-3 text-right">Ações</th>
-						</tr>
-					</thead>
-					<tbody id="users-tbody" class="divide-y divide-sentinel-100 text-sm">
+		@components.PageHeader("Usuários", strconv.Itoa(total)+" no total") {
+			@components.Button("Novo usuário", "/admin/users/new", "primary")
+		}
+		@components.Card("") {
+			if len(users) == 0 {
+				@components.EmptyState("users", "Nenhum usuário encontrado", "Use o botão acima para cadastrar.")
+			} else {
+				@components.Table(true) {
+					@components.TableHeader([]string{"Nome", "E-mail", "2FA", "Status", "Último login", "Ações"})
+					<tbody id="users-tbody">
 						for _, u := range users {
 							@UserRow(csrfToken, u)
 						}
-						if len(users) == 0 {
-							<tr><td colspan="6" class="px-4 py-8 text-center text-sentinel-500">Nenhum usuário encontrado.</td></tr>
-						}
 					</tbody>
-				</table>
-			</div>
+				}
+			}
+		}
+		<div class="mt-4">
 			@pager(page, pageSize, total)
 		</div>
 	}
@@ -48,32 +37,32 @@ templ UsersList(csrfToken string, users []domain.User, total, page, pageSize int
 // UserRow é um fragment para HTMX swaps (toggle active retorna a row atualizada).
 templ UserRow(csrfToken string, u domain.User) {
 	<tr id={ "user-row-" + u.ID.String() }>
-		<td class="px-4 py-3 font-medium text-sentinel-900">
-			<a href={ templ.URL("/admin/users/" + u.ID.String()) } class="hover:text-sentinel-700 hover:underline">{ u.FullName }</a>
+		<td>
+			<a href={ templ.URL("/admin/users/" + u.ID.String()) } class="font-medium text-sentinel-900 hover:underline">{ u.FullName }</a>
 		</td>
-		<td class="px-4 py-3 text-sentinel-700">{ u.Email }</td>
-		<td class="px-4 py-3">
+		<td class="text-sentinel-700">{ u.Email }</td>
+		<td>
 			if u.TOTPEnabled {
-				<span class="inline-flex rounded-full bg-green-50 px-2 text-xs font-medium text-green-700">Ativo</span>
+				@components.Badge("Ativo", "success")
 			} else {
-				<span class="inline-flex rounded-full bg-sentinel-50 px-2 text-xs text-sentinel-500">Inativo</span>
+				@components.Badge("Inativo", "neutral")
 			}
 		</td>
-		<td class="px-4 py-3">
+		<td>
 			if u.IsActive {
-				<span class="inline-flex rounded-full bg-blue-50 px-2 text-xs font-medium text-blue-700">Ativo</span>
+				@components.Badge("Ativo", "info")
 			} else {
-				<span class="inline-flex rounded-full bg-red-50 px-2 text-xs font-medium text-red-700">Desativado</span>
+				@components.Badge("Desativado", "danger")
 			}
 		</td>
-		<td class="px-4 py-3 text-sentinel-500">
+		<td class="text-sentinel-500">
 			if u.LastLoginAt != nil {
 				{ u.LastLoginAt.Format("02/01/2006 15:04") }
 			} else {
 				<span>—</span>
 			}
 		</td>
-		<td class="px-4 py-3 text-right">
+		<td class="text-right">
 			<button
 				type="button"
 				hx-post={ "/admin/users/" + u.ID.String() + "/toggle" }

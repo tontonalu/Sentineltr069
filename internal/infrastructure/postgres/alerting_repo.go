@@ -316,6 +316,27 @@ func (r *AlertRepo) HasActiveForRuleDevice(ctx context.Context, ruleID uuid.UUID
 	return err == nil, err
 }
 
+// CountOpenBySeverity retorna {severity -> count} para alertas não resolvidos.
+// Powered card "Alertas abertos" do dashboard.
+func (r *AlertRepo) CountOpenBySeverity(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT severity, COUNT(*) FROM alerts WHERE resolved_at IS NULL GROUP BY severity`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, 3)
+	for rows.Next() {
+		var sev string
+		var n int
+		if err := rows.Scan(&sev, &n); err != nil {
+			return nil, err
+		}
+		out[sev] = n
+	}
+	return out, rows.Err()
+}
+
 func (r *AlertRepo) scanAlerts(ctx context.Context, q string, args ...any) ([]domain.Alert, error) {
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {

@@ -59,12 +59,24 @@ generate: ## Gera código (templ + sqlc)
 	$(TEMPL) generate
 	$(SQLC) generate -f internal/infrastructure/postgres/sqlc.yaml || true
 
+.PHONY: assets-vendor
+assets-vendor: ## Baixa htmx.min.js + alpine.min.js para web/static/js/ (versões pinadas)
+	@mkdir -p web/static/js
+	@if [ ! -f web/static/js/htmx.min.js ]; then \
+		echo "→ baixando htmx.min.js"; \
+		curl -fsSL -o web/static/js/htmx.min.js "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"; \
+	fi
+	@if [ ! -f web/static/js/alpine.min.js ]; then \
+		echo "→ baixando alpine.min.js"; \
+		curl -fsSL -o web/static/js/alpine.min.js "https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"; \
+	fi
+
 .PHONY: tailwind
-tailwind: ## Build CSS uma vez (production)
+tailwind: assets-vendor ## Build CSS uma vez (production) + garante JS vendored
 	cd web && $(TAILWIND) -i static/css/input.css -o static/css/app.css --minify
 
 .PHONY: tailwind-watch
-tailwind-watch: ## Build CSS em modo watch (dev paralelo)
+tailwind-watch: assets-vendor ## Build CSS em modo watch (dev paralelo)
 	cd web && $(TAILWIND) -i static/css/input.css -o static/css/app.css --watch
 
 # ──────────────── Migrations ────────────────

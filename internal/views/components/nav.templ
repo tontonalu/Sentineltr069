@@ -1,0 +1,26 @@
+package components
+
+// NavLink — link individual da sidebar. iconName resolvido por @Icon.
+// active é calculado pelo chamador (Sidebar) baseado no path corrente.
+templ NavLink(href, label, iconName string, active bool) {
+	<a href={ templ.SafeURL(href) } class={ "nav-link", templ.KV("nav-link-active", active) }>
+		@Icon(iconName, "h-4 w-4 shrink-0")
+		<span>{ label }</span>
+	</a>
+}
+
+// PageHeader — cabeçalho padrão de páginas com título + subtítulo opcional
+// e slot de ações à direita (ex: botão "Novo").
+templ PageHeader(title, subtitle string) {
+	<div class="mb-6 flex items-start justify-between gap-4">
+		<div>
+			<h1 class="text-2xl font-semibold text-sentinel-900">{ title }</h1>
+			if subtitle != "" {
+				<p class="mt-1 text-sm text-sentinel-500">{ subtitle }</p>
+			}
+		</div>
+		<div class="flex shrink-0 items-center gap-2">
+			{ children... }
+		</div>
+	</div>
+}

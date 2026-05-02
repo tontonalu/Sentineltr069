@@ -5,6 +5,7 @@ import (
 
 	"github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/views/components"
 	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
@@ -22,73 +23,71 @@ type ListInput struct {
 
 templ List(in ListInput) {
 	@layouts.Base("Templates") {
-		<div class="space-y-6">
-			<div class="flex items-center justify-between">
-				<h1 class="text-2xl font-semibold text-sentinel-900">Profiles de configuração</h1>
-				<a href="/templates/new" class="btn-primary">Novo profile</a>
-			</div>
-			<form method="get" class="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
-				<div class="flex flex-col">
-					<label class="text-xs uppercase tracking-wide text-sentinel-500">Buscar</label>
-					<input type="text" name="q" value={ in.Search } class="input"/>
-				</div>
-				<div class="flex flex-col">
-					<label class="text-xs uppercase tracking-wide text-sentinel-500">Vendor</label>
-					<select name="vendor" class="input">
-						<option value="">Todos</option>
-						for _, v := range in.Vendors {
-							<option value={ v.ID.String() } selected?={ in.VendorID == v.ID.String() }>{ v.Name }</option>
-						}
-					</select>
-				</div>
-				<label class="inline-flex items-center gap-2 text-sm text-sentinel-700">
-					<input type="checkbox" name="active" value="1" checked?={ in.ActiveOnly }/>
-					Apenas ativos
-				</label>
-				<button type="submit" class="btn-secondary">Filtrar</button>
-			</form>
-			<div class="overflow-hidden rounded-lg bg-white shadow">
-				<table class="min-w-full divide-y divide-sentinel-100">
-					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
-						<tr>
-							<th class="px-4 py-3">Nome</th>
-							<th class="px-4 py-3">Vendor / Modelo</th>
-							<th class="px-4 py-3">Versão</th>
-							<th class="px-4 py-3">Status</th>
-							<th class="px-4 py-3 text-right">Ações</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-sentinel-100 text-sm">
-						for _, p := range in.Profiles {
-							<tr>
-								<td class="px-4 py-3 font-medium text-sentinel-900">
-									<a href={ templ.URL("/templates/" + p.ID.String()) } class="hover:underline">{ p.Name }</a>
-									if p.Description != "" {
-										<div class="text-xs text-sentinel-500">{ p.Description }</div>
-									}
-								</td>
-								<td class="px-4 py-3 text-sentinel-700">{ vendorModelLabel(p, in) }</td>
-								<td class="px-4 py-3 font-mono text-sentinel-700">v{ strconv.Itoa(p.Version) }</td>
-								<td class="px-4 py-3">
-									if p.IsActive {
-										<span class="inline-flex rounded-full bg-blue-50 px-2 text-xs font-medium text-blue-700">Ativo</span>
-									} else {
-										<span class="inline-flex rounded-full bg-sentinel-50 px-2 text-xs text-sentinel-500">Inativo</span>
-									}
-								</td>
-								<td class="px-4 py-3 text-right">
-									<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
-								</td>
-							</tr>
-						}
-						if len(in.Profiles) == 0 {
-							<tr><td colspan="5" class="px-4 py-8 text-center text-sentinel-500">Nenhum profile cadastrado.</td></tr>
-						}
-					</tbody>
-				</table>
-			</div>
+		@components.PageHeader("Profiles de configuração", strconv.Itoa(len(in.Profiles))+" cadastrados") {
+			@components.Button("Novo profile", "/templates/new", "primary")
+		}
+		@components.Card("") {
+			@filtersBar(in)
+		}
+		<div class="mt-6">
+			@components.Card("") {
+				if len(in.Profiles) == 0 {
+					@components.EmptyState("file-cog", "Nenhum profile cadastrado", "Crie o primeiro profile pra começar a aplicar configurações em massa nos CPEs.")
+				} else {
+					@components.Table(true) {
+						@components.TableHeader([]string{"Nome", "Vendor / Modelo", "Versão", "Status", "Ações"})
+						<tbody>
+							for _, p := range in.Profiles {
+								<tr>
+									<td>
+										<a href={ templ.URL("/templates/" + p.ID.String()) } class="font-medium text-sentinel-900 hover:underline">{ p.Name }</a>
+										if p.Description != "" {
+											<div class="text-xs text-sentinel-500">{ p.Description }</div>
+										}
+									</td>
+									<td class="text-sentinel-700">{ vendorModelLabel(p, in) }</td>
+									<td class="font-mono text-sentinel-700">v{ strconv.Itoa(p.Version) }</td>
+									<td>
+										if p.IsActive {
+											@components.Badge("Ativo", "info")
+										} else {
+											@components.Badge("Inativo", "neutral")
+										}
+									</td>
+									<td class="text-right">
+										<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
+									</td>
+								</tr>
+							}
+						</tbody>
+					}
+				}
+			}
 		</div>
 	}
+}
+
+templ filtersBar(in ListInput) {
+	<form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-4 md:items-end">
+		<div>
+			<label class="label" for="q">Buscar</label>
+			<input type="text" id="q" name="q" value={ in.Search } class="input"/>
+		</div>
+		<div>
+			<label class="label" for="vendor">Vendor</label>
+			<select id="vendor" name="vendor" class="input">
+				<option value="">Todos</option>
+				for _, v := range in.Vendors {
+					<option value={ v.ID.String() } selected?={ in.VendorID == v.ID.String() }>{ v.Name }</option>
+				}
+			</select>
+		</div>
+		<label class="inline-flex items-center gap-2 text-sm text-sentinel-700">
+			<input type="checkbox" name="active" value="1" checked?={ in.ActiveOnly }/>
+			Apenas ativos
+		</label>
+		<button type="submit" class="btn-secondary">Filtrar</button>
+	</form>
 }
 
 // vendorModelLabel resolve nome legível do vendor/modelo. Genérico → "—".

@@ -1,0 +1,58 @@
+package components
+
+// Card — container padrão com borda + sombra suave. children renderizam dentro do .card-body.
+// Se title vazio, omite o header.
+templ Card(title string) {
+	<div class="card">
+		if title != "" {
+			<div class="card-header">
+				<h3 class="text-sm font-semibold text-sentinel-900">{ title }</h3>
+			</div>
+		}
+		<div class="card-body">
+			{ children... }
+		</div>
+	</div>
+}
+
+// CardWithActions — variante com slot de ações no header (ex: botão "Ver tudo").
+templ CardWithActions(title string, actions templ.Component) {
+	<div class="card">
+		<div class="card-header">
+			<h3 class="text-sm font-semibold text-sentinel-900">{ title }</h3>
+			@actions
+		</div>
+		<div class="card-body">
+			{ children... }
+		</div>
+	</div>
+}
+
+// StatCard — KPI tile do dashboard. tone colore o valor (success/warning/danger/info/neutral).
+// delta é opcional ("+12 nas últimas 24h", etc.); vazio omite.
+templ StatCard(label, value, delta, tone string) {
+	<div class="card">
+		<div class="card-body">
+			<div class="text-xs font-medium uppercase tracking-wide text-sentinel-500">{ label }</div>
+			<div class={ "mt-2 text-3xl font-semibold", statValueToneClass(tone) }>{ value }</div>
+			if delta != "" {
+				<div class="mt-1 text-xs text-sentinel-500">{ delta }</div>
+			}
+		</div>
+	</div>
+}
+
+func statValueToneClass(tone string) string {
+	switch tone {
+	case "success":
+		return "text-success-700"
+	case "warning":
+		return "text-warning-700"
+	case "danger":
+		return "text-danger-700"
+	case "info":
+		return "text-info-700"
+	default:
+		return "text-sentinel-900"
+	}
+}

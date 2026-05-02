@@ -123,6 +123,17 @@ func PermissionsFromContext(ctx context.Context) (*domain.EffectivePermissions, 
 	return p, ok
 }
 
+// UserHasPermission é a versão "soft" de RequirePermission: devolve bool
+// para handlers que precisam decidir o que renderizar (ex: gating de widgets
+// no dashboard) em vez de retornar 403.
+func UserHasPermission(ctx context.Context, resource, action string) bool {
+	perms, ok := PermissionsFromContext(ctx)
+	if !ok {
+		return false
+	}
+	return perms.Has(resource, action, domain.GlobalScope)
+}
+
 func redirectOrUnauthorized(w http.ResponseWriter, r *http.Request, loginURL string) {
 	if r.Header.Get("HX-Request") == "true" || isJSONRequest(r) {
 		w.Header().Set("HX-Redirect", loginURL) // HTMX faz o redirect client-side

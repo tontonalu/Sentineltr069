@@ -219,6 +219,27 @@ func (r *JobRepo) List(ctx context.Context, f JobListFilter) ([]prov.Job, error)
 	return out, rows.Err()
 }
 
+// CountByStateSince retorna {state -> count} de jobs criados após `since`.
+// Usado pelo dashboard para "Jobs nas últimas 24h".
+func (r *JobRepo) CountByStateSince(ctx context.Context, since time.Time) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT status, COUNT(*) FROM provisioning_jobs WHERE created_at >= $1 GROUP BY status`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, 5)
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, rows.Err()
+}
+
 // ────────────────────── BatchRepo ──────────────────────
 
 type BatchRepo struct{ pool Pool }
@@ -350,6 +371,27 @@ func (r *BatchRepo) List(ctx context.Context, requestedBy *uuid.UUID, limit int)
 		}
 		b.Status = prov.BatchStatus(st)
 		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// CountByStatus retorna {status -> count} para batches. Usado pelo dashboard
+// para destacar batches em "awaiting_approval" e em execução.
+func (r *BatchRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT status, COUNT(*) FROM provisioning_batches GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, 6)
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
 	}
 	return out, rows.Err()
 }

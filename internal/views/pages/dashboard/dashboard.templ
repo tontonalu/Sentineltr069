@@ -1,0 +1,267 @@
+package dashboard
+
+import (
+	"strconv"
+
+	alerting "github.com/celinet/sentinel-acs/internal/domain/alerting"
+	prov "github.com/celinet/sentinel-acs/internal/domain/provisioning"
+	"github.com/celinet/sentinel-acs/internal/views/components"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+templ Page(in DashboardData) {
+	@layouts.Base("Visão geral") {
+		@components.PageHeader("Olá, "+firstName(in.UserName), "Resumo da operação · "+in.GeneratedAt.Format("02/01 15:04"))
+		if !in.Permissions.AnyVisible() {
+			<div class="card">
+				@components.EmptyState("shield", "Sem acessos atribuídos", "Fale com seu administrador para receber permissões. Enquanto isso, você pode ver suas configurações pessoais no menu superior direito.")
+			</div>
+		} else {
+			// 4 KPIs principais
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+				if in.Permissions.CanReadDevices {
+					@components.StatCard(
+						"Devices online",
+						strconv.Itoa(in.DeviceCounts.Online),
+						deviceDelta(in.DeviceCounts),
+						deviceTone(in.DeviceCounts),
+					)
+				}
+				if in.Permissions.CanReadAlerts {
+					@components.StatCard(
+						"Alertas abertos",
+						strconv.Itoa(in.AlertCounts.Total),
+						alertDelta(in.AlertCounts),
+						alertTone(in.AlertCounts),
+					)
+				}
+				if in.Permissions.CanReadJobs {
+					@components.StatCard(
+						"Jobs em execução",
+						strconv.Itoa(in.JobCounts.Running+in.JobCounts.Queued),
+						jobDelta(in.JobCounts),
+						jobTone(in.JobCounts),
+					)
+					@components.StatCard(
+						"Batches aguardando",
+						strconv.Itoa(in.BatchCounts.AwaitingApproval),
+						batchDelta(in.BatchCounts),
+						batchTone(in.BatchCounts),
+					)
+				}
+			</div>
+			// 2 colunas: alertas + jobs recentes
+			<div class="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+				if in.Permissions.CanReadAlerts {
+					@components.Card("Alertas recentes") {
+						@recentAlerts(in.RecentAlerts)
+					}
+				}
+				if in.Permissions.CanReadJobs {
+					@components.Card("Últimos jobs") {
+						@recentJobs(in.RecentJobs)
+					}
+				}
+			</div>
+			// Saúde do sistema (sempre visível pra autenticados — info de ops)
+			<div class="mt-8">
+				@components.Card("Saúde do sistema") {
+					@healthList(in.Health)
+				}
+			</div>
+		}
+	}
+}
+
+templ recentAlerts(alerts []alerting.Alert) {
+	if len(alerts) == 0 {
+		@components.EmptyState("bell", "Sem alertas abertos", "Tudo tranquilo por aqui.")
+	} else {
+		@components.Table(true) {
+			@components.TableHeader([]string{"Severidade", "Disparado", "Status"})
+			<tbody>
+				for _, a := range alerts {
+					<tr>
+						<td>
+							@components.Badge(string(a.Severity), severityToTone(a.Severity))
+						</td>
+						<td class="text-sentinel-700">{ a.FiredAt.Format("02/01 15:04") }</td>
+						<td>
+							if a.AcknowledgedAt != nil {
+								@components.Badge("ack", "info")
+							} else {
+								@components.Badge("aberto", "danger")
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		}
+	}
+}
+
+templ recentJobs(jobs []prov.Job) {
+	if len(jobs) == 0 {
+		@components.EmptyState("clock", "Sem jobs recentes", "A fila de provisionamento está vazia.")
+	} else {
+		@components.Table(true) {
+			@components.TableHeader([]string{"Status", "Criado", "Tentativas"})
+			<tbody>
+				for _, j := range jobs {
+					<tr>
+						<td>
+							@components.Badge(string(j.Status), jobStatusToTone(j.Status))
+						</td>
+						<td class="text-sentinel-700">{ j.CreatedAt.Format("02/01 15:04") }</td>
+						<td class="text-sentinel-500">{ strconv.Itoa(j.RetryCount) }</td>
+					</tr>
+				}
+			</tbody>
+		}
+	}
+}
+
+templ healthList(rows []HealthRow) {
+	<ul class="space-y-2">
+		for _, r := range rows {
+			<li class="flex items-center justify-between text-sm">
+				<div class="flex items-center gap-2">
+					if r.Status == "ok" {
+						<span class="h-2 w-2 rounded-full bg-success-500"></span>
+					} else if r.Status == "error" {
+						<span class="h-2 w-2 rounded-full bg-danger-500"></span>
+					} else {
+						<span class="h-2 w-2 rounded-full bg-sentinel-100"></span>
+					}
+					<span class="font-medium text-sentinel-900">{ r.Name }</span>
+				</div>
+				<div class="flex items-center gap-3 text-xs text-sentinel-500">
+					if r.Latency != "" {
+						<span>{ r.Latency }</span>
+					}
+					if r.Error != "" {
+						<span class="text-danger-700">{ r.Error }</span>
+					} else {
+						<span class="uppercase tracking-wide">{ r.Status }</span>
+					}
+				</div>
+			</li>
+		}
+	</ul>
+}
+
+// ───────────────── helpers (não-templ) ─────────────────
+
+func firstName(full string) string {
+	for i, r := range full {
+		if r == ' ' {
+			return full[:i]
+		}
+	}
+	if full == "" {
+		return "Operador"
+	}
+	return full
+}
+
+func deviceDelta(c DeviceCounts) string {
+	if c.Total == 0 {
+		return "nenhum device cadastrado"
+	}
+	return strconv.Itoa(c.Offline) + " offline · " + strconv.Itoa(c.NeverSeen) + " nunca vistos"
+}
+
+func deviceTone(c DeviceCounts) string {
+	if c.Total == 0 {
+		return "neutral"
+	}
+	pct := (c.Online * 100) / c.Total
+	switch {
+	case pct >= 90:
+		return "success"
+	case pct >= 60:
+		return "warning"
+	default:
+		return "danger"
+	}
+}
+
+func alertDelta(c AlertCounts) string {
+	if c.Total == 0 {
+		return "sem alertas abertos"
+	}
+	return strconv.Itoa(c.Critical) + " críticos · " + strconv.Itoa(c.Warning) + " avisos"
+}
+
+func alertTone(c AlertCounts) string {
+	switch {
+	case c.Critical > 0:
+		return "danger"
+	case c.Warning > 0:
+		return "warning"
+	case c.Total > 0:
+		return "info"
+	default:
+		return "success"
+	}
+}
+
+func jobDelta(c JobCounts) string {
+	if c.Total == 0 {
+		return "fila vazia (24h)"
+	}
+	return strconv.Itoa(c.Failed) + " falharam nas últimas 24h"
+}
+
+func jobTone(c JobCounts) string {
+	switch {
+	case c.Failed > 0:
+		return "danger"
+	case c.Running > 0:
+		return "info"
+	default:
+		return "neutral"
+	}
+}
+
+func batchDelta(c BatchCounts) string {
+	if c.AwaitingApproval == 0 {
+		return strconv.Itoa(c.Running) + " em execução"
+	}
+	return "ação necessária"
+}
+
+func batchTone(c BatchCounts) string {
+	if c.AwaitingApproval > 0 {
+		return "warning"
+	}
+	return "neutral"
+}
+
+func severityToTone(s alerting.Severity) string {
+	switch s {
+	case alerting.SeverityCritical:
+		return "danger"
+	case alerting.SeverityWarning:
+		return "warning"
+	case alerting.SeverityInfo:
+		return "info"
+	default:
+		return "neutral"
+	}
+}
+
+func jobStatusToTone(s prov.JobStatus) string {
+	switch s {
+	case prov.JobDone:
+		return "success"
+	case prov.JobFailed:
+		return "danger"
+	case prov.JobRunning:
+		return "info"
+	case prov.JobQueued:
+		return "warning"
+	default:
+		return "neutral"
+	}
+}

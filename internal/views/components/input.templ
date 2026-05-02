@@ -1,0 +1,80 @@
+package components
+
+// TextInput — campo de texto com label opcional e placeholder. Para forms padrão.
+// Se label vazio, omite o <label>. Se errMsg presente, renderiza em vermelho abaixo.
+templ TextInput(name, label, value, placeholder, errMsg string) {
+	<div>
+		if label != "" {
+			<label class="label" for={ name }>{ label }</label>
+		}
+		<input
+			type="text"
+			id={ name }
+			name={ name }
+			value={ value }
+			placeholder={ placeholder }
+			class="input"
+		/>
+		if errMsg != "" {
+			<p class="mt-1 text-xs text-danger-700">{ errMsg }</p>
+		}
+	</div>
+}
+
+// SearchInput — versão com type="search" e ícone à esquerda.
+templ SearchInput(name, value, placeholder string) {
+	<div class="relative">
+		<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-sentinel-500">
+			@Icon("search", "h-4 w-4")
+		</div>
+		<input
+			type="search"
+			name={ name }
+			value={ value }
+			placeholder={ placeholder }
+			class="input pl-9"
+		/>
+	</div>
+}
+
+// SelectOption — uma opção de Select. Selected controla o atributo selected.
+type SelectOption struct {
+	Value    string
+	Label    string
+	Selected bool
+}
+
+templ Select(name, label string, options []SelectOption) {
+	<div>
+		if label != "" {
+			<label class="label" for={ name }>{ label }</label>
+		}
+		<select id={ name } name={ name } class="input">
+			for _, opt := range options {
+				<option value={ opt.Value } selected?={ opt.Selected }>{ opt.Label }</option>
+			}
+		</select>
+	</div>
+}
+
+templ Textarea(name, label, value, placeholder string, rows int) {
+	<div>
+		if label != "" {
+			<label class="label" for={ name }>{ label }</label>
+		}
+		<textarea
+			id={ name }
+			name={ name }
+			rows={ rowsAttr(rows) }
+			placeholder={ placeholder }
+			class="input font-mono"
+		>{ value }</textarea>
+	</div>
+}
+
+func rowsAttr(n int) string {
+	if n <= 0 {
+		return "4"
+	}
+	return itoa(n)
+}

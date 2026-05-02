@@ -19,6 +19,9 @@ internal/infrastructure/postgres/gen/*.go
 web/static/css/app.css
 web/static/css/*.map
 
+# Vendored JS (baixado em build pelo Dockerfile/Makefile, nunca commitado)
+web/static/js/*.min.js
+
 # Env / secrets
 .env
 .env.local
