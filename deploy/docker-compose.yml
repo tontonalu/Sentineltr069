@@ -76,7 +76,7 @@ services:
   # ──────────────── GenieACS (CWMP/TR-069) ────────────────
   # Stack oficial: 3 processos (cwmp, nbi, fs) compartilhando o mesmo Mongo.
   genieacs-cwmp:
-    image: drumsergio/genieacs:1.2
+    image: drumsergio/genieacs:1.2.16.1
     container_name: sentinel-genieacs-cwmp
     command: ["genieacs-cwmp"]
     environment:
@@ -92,7 +92,7 @@ services:
     restart: unless-stopped
 
   genieacs-nbi:
-    image: drumsergio/genieacs:1.2
+    image: drumsergio/genieacs:1.2.16.1
     container_name: sentinel-genieacs-nbi
     command: ["genieacs-nbi"]
     environment:
@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   genieacs-fs:
-    image: drumsergio/genieacs:1.2
+    image: drumsergio/genieacs:1.2.16.1
     container_name: sentinel-genieacs-fs
     command: ["genieacs-fs"]
     environment:
