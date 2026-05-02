@@ -98,19 +98,37 @@ jobs:
           done
           [[ $missing -eq 0 ]] || exit 1
 
-      - name: Install sshpass + rsync
+      - name: Install sshpass + rsync (no runner)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass rsync
 
-      - name: Bootstrap step 1 — instalar SSH key (uso ÚNICO de senha)
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add server to known_hosts (TOFU)
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Instalar SSH key (sshpass apenas se necessário)
         env:
           SSHPASS:        ${{ secrets.BOOTSTRAP_SSH_PASSWORD }}
           SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
           SSH_HOST:       ${{ vars.SSH_HOST }}
           SSH_USER:       ${{ vars.SSH_USER }}
         run: |
-          # Coleta host key (TOFU — primeira vez, aceita).
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # IDEMPOTÊNCIA: em re-execuções, bootstrap.sh já desligou
+          # PasswordAuthentication. Tentamos key auth primeiro — se funcionar,
+          # pulamos sshpass (que falharia, e a key já está instalada mesmo).
+          if ssh -o BatchMode=yes -o ConnectTimeout=5 "$SSH_USER@$SSH_HOST" 'true' 2>/dev/null; then
+            echo "✓ Key auth já funciona — pulando sshpass (re-execução idempotente)"
+            exit 0
+          fi
+
+          echo "Key auth ainda não funciona — instalando via sshpass (1ª execução)"
 
           # Idempotente: append apenas se a key ainda não está em authorized_keys.
           # NÃO sobrescreve — preserva chaves manuais que o operador tenha adicionado.
@@ -122,11 +140,6 @@ jobs:
              echo \"$SSH_PUBLIC_KEY\" >> ~/.ssh/authorized_keys"
 
           echo "✓ SSH key instalada — sshpass não será mais usado"
-
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.1
-        with:
-          ssh-private-key: ${{ secrets.SSH_KEY }}
 
       - name: Validar key auth funciona
         env:
