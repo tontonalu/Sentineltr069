@@ -262,6 +262,12 @@ if [[ ! -f "$APP_AGE_KEY" ]]; then
     chmod 0400 "$APP_AGE_KEY"
 fi
 
+# Garantia idempotente: dono e perms dos secrets, independente de quem
+# criou. Em runs antigos pode ter ficado celinet:celinet ou root:root.
+chown -R "$SENTINEL_USER:$SENTINEL_USER" "$SENTINEL_HOME/secrets"
+chmod 0750 "$SENTINEL_HOME/secrets"
+find "$SENTINEL_HOME/secrets" -type f -exec chmod 0400 {} +
+
 # ──────────── crontab para backup horário ────────────
 CRON_FILE=/etc/cron.d/sentinelacs-backup
 if [[ ! -f "$CRON_FILE" ]]; then
