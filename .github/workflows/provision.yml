@@ -313,9 +313,16 @@ jobs:
           GHCR_PAT:   ${{ secrets.GHCR_PAT }}
           GHCR_OWNER: ${{ vars.GHCR_OWNER }}
         run: |
-          # Stdin do PAT — não fica em ps/history.
-          ssh "$SSH_USER@$SSH_HOST" \
-            "echo '$GHCR_PAT' | sudo -u sentinel docker login ghcr.io -u '$GHCR_OWNER' --password-stdin"
+          # Garante que /opt/sentinelacs/.docker/ existe com dono sentinel.
+          # Em re-execuções, runs anteriores podem ter criado config.json com
+          # dono diferente — chown -R conserta sem perder o login existente.
+          # Stdin do PAT — não fica em ps/history. -H força HOME=/opt/sentinelacs.
+          ssh "$SSH_USER@$SSH_HOST" "
+            set -e
+            sudo install -d -o sentinel -g sentinel -m 0700 /opt/sentinelacs/.docker
+            sudo chown -R sentinel:sentinel /opt/sentinelacs/.docker
+            echo '$GHCR_PAT' | sudo -H -u sentinel docker login ghcr.io -u '$GHCR_OWNER' --password-stdin
+          "
 
       - name: Deploy inicial
         env:
