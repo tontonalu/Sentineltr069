@@ -2,7 +2,7 @@
 # Multi-stage build — produz imagem mínima rodando como usuário não-root.
 
 # ──────────────── Stage 1: builder ────────────────
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates
