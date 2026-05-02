@@ -39,6 +39,11 @@ COMPOSE_PROD="$ROOT/docker-compose.prod.yml"
 STATE_DIR="$ROOT/state"
 LAST_GOOD="$STATE_DIR/last-good-sha"
 
+# docker compose faz stat(.) para resolver paths relativos no compose file.
+# Quando invocado via 'sudo -u sentinel deploy.sh' a partir de /home/celinet
+# (CWD herdado), sentinel não consegue ler o diretório → permission denied.
+cd "$ROOT"
+
 mkdir -p "$STATE_DIR"
 
 [[ -f "$CFG" ]]          || { echo "config/.env ausente — rode init-secrets.sh primeiro"; exit 1; }
