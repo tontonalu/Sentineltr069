@@ -99,7 +99,7 @@ func (h *DevicesHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if _, err := h.SyncSvc.Tick(ctx); err != nil {
 		logger.FromContext(r.Context()).Error("manual sync", "err", err)
-		http.Error(w, "falha ao sincronizar com GenieACS", http.StatusBadGateway)
+		http.Error(w, "falha ao sincronizar com ACS upstream", http.StatusBadGateway)
 		return
 	}
 	http.Redirect(w, r, "/devices", http.StatusSeeOther)

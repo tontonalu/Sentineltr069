@@ -20,7 +20,7 @@ type ProvisioningDraft struct {
 templ ProvisioningPage(csrfToken string, draft ProvisioningDraft, cfg *prov.Config, canManage bool, errMsg, okMsg string) {
 	@layouts.Base("Configurações · Provisionamento") {
 		@Tabs()
-		@components.PageHeader("Provisionamento TR-069", "URL do ACS, intervalo de Inform e credenciais aplicadas pelo GenieACS a todo CPE.") {
+		@components.PageHeader("Provisionamento TR-069", "URL do ACS, intervalo de Inform e credenciais aplicadas pelo ACS upstream a todo CPE.") {
 		}
 
 		@syncBanner(cfg, errMsg, okMsg)
@@ -59,7 +59,7 @@ templ syncBanner(cfg *prov.Config, errMsg, okMsg string) {
 					<span class="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">com erro</span>
 				}
 			} else {
-				<span class="text-sentinel-500">Ainda não sincronizado com o GenieACS.</span>
+				<span class="text-sentinel-500">Ainda não sincronizado com o ACS upstream.</span>
 			}
 		</div>
 		<div class="text-xs text-sentinel-500">
@@ -94,7 +94,7 @@ templ provisioningForm(csrfToken string, draft ProvisioningDraft, canManage bool
 				<input id="preset_name" type="text" name="preset_name" value={ draft.PresetName }
 					required disabled?={ !canManage }
 					class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 font-mono text-sm focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
-				<p class="mt-1 text-xs text-sentinel-500">Identificador no GenieACS. Default <code>sentinel-defaults</code>.</p>
+				<p class="mt-1 text-xs text-sentinel-500">Identificador no ACS upstream. Default <code>sentinel-defaults</code>.</p>
 			</div>
 		</div>
 
@@ -116,7 +116,7 @@ templ provisioningForm(csrfToken string, draft ProvisioningDraft, canManage bool
 
 		if canManage {
 			<div class="flex flex-wrap items-center justify-end gap-2 border-t border-sentinel-100 pt-4">
-				<button type="submit" formaction="/settings/provisioning/sync" class="btn-ghost">Sincronizar com GenieACS</button>
+				<button type="submit" formaction="/settings/provisioning/sync" class="btn-ghost">Sincronizar com ACS upstream</button>
 				<button type="submit" class="btn-primary">Salvar</button>
 			</div>
 		} else {
@@ -148,6 +148,6 @@ templ cpeInstructions(draft ProvisioningDraft) {
 				<dd class="font-mono text-xs">{ strconv.Itoa(draft.InformIntervalS) } s</dd>
 			</div>
 		</dl>
-		<p class="text-xs text-sentinel-500">Após o primeiro Inform, o GenieACS aplica o preset e o CPE aparece em <a href="/devices" class="text-sentinel-900 underline">/devices</a>.</p>
+		<p class="text-xs text-sentinel-500">Após o primeiro Inform, o ACS upstream aplica o preset e o CPE aparece em <a href="/devices" class="text-sentinel-900 underline">/devices</a>.</p>
 	</div>
 }

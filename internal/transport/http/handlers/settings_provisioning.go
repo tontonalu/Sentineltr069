@@ -83,8 +83,8 @@ func (h *SettingsProvisioningHandler) Sync(w http.ResponseWriter, r *http.Reques
 
 	var errMsg, okMsg string
 	if syncErr != nil {
-		errMsg = "Falha ao sincronizar com GenieACS: " + syncErr.Error()
-		logger.FromContext(r.Context()).Warn("genieacs sync failed", "err", syncErr)
+		errMsg = "Falha ao sincronizar com ACS upstream: " + syncErr.Error()
+		logger.FromContext(r.Context()).Warn("upstream sync failed", "err", syncErr)
 	} else {
 		okMsg = "Sincronizado com sucesso. Próximo Inform de cada CPE aplica os parâmetros."
 	}

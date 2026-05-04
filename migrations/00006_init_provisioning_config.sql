@@ -31,7 +31,7 @@ CREATE TRIGGER tr069_provisioning_config_updated_at
 -- ──────────────── Permissões ────────────────
 INSERT INTO permissions (resource, action, description) VALUES
     ('provisioning_config', 'read',   'Ler configuração TR-069/CWMP'),
-    ('provisioning_config', 'manage', 'Editar config TR-069 e sincronizar com GenieACS')
+    ('provisioning_config', 'manage', 'Editar config TR-069 e sincronizar com ACS upstream')
 ON CONFLICT (resource, action) DO NOTHING;
 
 -- Superadmin recebe ambas; operator recebe só read.
