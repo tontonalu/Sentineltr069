@@ -123,7 +123,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     container_name: sentinel-worker
-    command: ["/usr/local/bin/worker"]
+    # Dockerfile fixa ENTRYPOINT=/usr/local/bin/server (formato exec). Para
+    # rodar o binário do worker em vez do server, precisamos sobrescrever
+    # entrypoint — usar só `command:` faria do path um argumento do server.
+    entrypoint: ["/usr/local/bin/worker"]
     # env_file vem dos overrides — ver comentário no service 'app'.
     depends_on:
       postgres: { condition: service_healthy }
