@@ -85,7 +85,8 @@
       "Bash(golangci-lint migrate *)",
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"build_exit=$?\")",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(command -v templ)"
     ]
   }
 }

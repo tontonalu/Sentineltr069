@@ -213,6 +213,10 @@ func run() error {
 	settingsPOPsH := &handlers.SettingsPOPsHandler{POPs: popRepo}
 	settingsVendorsH := &handlers.SettingsVendorsHandler{Vendors: vendorRepo}
 	settingsModelsH := &handlers.SettingsModelsHandler{Models: modelRepo, Vendors: vendorRepo}
+	var settingsProvH *handlers.SettingsProvisioningHandler
+	if provConfigRepo != nil {
+		settingsProvH = &handlers.SettingsProvisioningHandler{Configs: provConfigRepo, Syncer: provSyncer}
+	}
 
 	templatesH := &handlers.TemplatesHandler{
 		Service:  tplService,
@@ -374,6 +378,20 @@ func run() error {
 			r.Get("/new", settingsModelsH.NewForm)
 			r.Post("/", settingsModelsH.Create)
 		})
+
+		// Settings · Provisionamento — config TR-069/CWMP (URL ACS, Inform,
+		// credenciais default) + sync com GenieACS via NBI.
+		if settingsProvH != nil {
+			r.Route("/settings/provisioning", func(r chi.Router) {
+				r.Use(mw.RequirePermission("provisioning_config", "read"))
+				r.Get("/", settingsProvH.Show)
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("provisioning_config", "manage"))
+					r.Post("/", settingsProvH.Update)
+					r.Post("/sync", settingsProvH.Sync)
+				})
+			})
+		}
 
 		// Devices — leitura para todos autenticados com device.read.
 		r.Route("/devices", func(r chi.Router) {
