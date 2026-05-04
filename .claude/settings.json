@@ -78,7 +78,8 @@
       "Bash(awk 'NR>=39 && NR<=66 {gsub\\(/\\\\t/, \"\\\\\\\\t\"\\); print NR\": \"$0}' /Users/tonton/Documents/GitHub/Sentineltr069/internal/views/components/sidebar.templ)",
       "Read(//Users/tonton/go/bin/**)",
       "Bash(go env *)",
-      "Bash(/Users/tonton/go/bin/templ generate *)"
+      "Bash(/Users/tonton/go/bin/templ generate *)",
+      "Bash(GOFLAGS=\"\" go install github.com/a-h/templ/cmd/templ@v0.3.1001)"
     ]
   }
 }
