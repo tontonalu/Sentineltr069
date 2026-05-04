@@ -78,6 +78,12 @@ jobs:
             for f in /tmp/sentinel-stage/scripts/*.sh; do
               sudo install -o sentinel -g sentinel -m 0755 "$f" /opt/sentinelacs/scripts/
             done
+            # Systemd units (cwmp-acl-reconcile.path/.service) — não são
+            # executáveis. Mode 0644.
+            for f in /tmp/sentinel-stage/scripts/*.path /tmp/sentinel-stage/scripts/*.service; do
+              [ -f "$f" ] || continue
+              sudo install -o sentinel -g sentinel -m 0644 "$f" /opt/sentinelacs/scripts/
+            done
             rm -rf /tmp/sentinel-stage
           '
 
