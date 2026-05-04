@@ -173,6 +173,16 @@ func (s *SyncService) syncDevice(
 		"Device.DeviceInfo.SerialNumber",
 	)
 
+	// CPEs reais sempre enviam DeviceID.SerialNumber no Inform — é mandatório
+	// em TR-069. Scanners de internet (Censys/Shodan e similares) atingem a
+	// 7547 com Informs malformados ou sem DeviceID e geram entradas-lixo no
+	// GenieACS. Sem serial, descartamos antes de poluir o inventário.
+	if serial == "" {
+		logger.FromContext(ctx).Debug("skipping device without serial",
+			"device_id", d.ID, "manufacturer", manufacturer)
+		return nil
+	}
+
 	oui := genieacs.FirstNonEmpty(d.Raw, "DeviceID.OUI")
 
 	fwVersion := genieacs.FirstNonEmpty(d.Raw,
