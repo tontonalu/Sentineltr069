@@ -93,7 +93,8 @@ services:
     volumes:
       - genieacs_files:/opt/genieacs/files
     ports:
-      - "7547:7547"             # CWMP — público para CPEs (TR-069)
+      - "7547:7547"             # CWMP — público para CPEs (TR-069), porta padrão
+      - "8080:7547"             # CWMP — fallback para redes que filtram :7547 na borda
       - "7567:7567"             # FS — público para CPEs baixarem firmware
       # 7557 (NBI) e 3000 (UI) NÃO expostos — só rede docker interna.
     restart: unless-stopped
