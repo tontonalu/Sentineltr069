@@ -373,10 +373,18 @@ func (r *DeviceRepo) Upsert(ctx context.Context, d *inventory.Device) error {
 		ipArg = d.IPWAN.String()
 	}
 
+	// pgx envia slice nil como NULL — a coluna `tags` é NOT NULL e o DEFAULT
+	// '{}' só dispara quando a coluna não está no INSERT, não quando está
+	// presente com valor NULL. Normalizamos para slice vazio aqui.
+	tags := d.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
 	return r.pool.QueryRow(ctx, q,
 		idArg, d.GenieACSID, d.SerialNumber, d.MAC, d.OUI,
 		d.ModelID, d.CustomerID, d.POPID, d.Status, d.FirmwareVersion,
-		ipArg, d.LastInformAt, d.LastBootAt, d.Tags,
+		ipArg, d.LastInformAt, d.LastBootAt, tags,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
