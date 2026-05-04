@@ -86,7 +86,10 @@
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"build_exit=$?\")",
       "Bash(git ls-tree *)",
-      "Bash(command -v templ)"
+      "Bash(command -v templ)",
+      "Read(//Users/**)",
+      "Bash(ssh-add -l)",
+      "Bash(ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C \"tonton@sentinelacs\" -N \"\")"
     ]
   }
 }

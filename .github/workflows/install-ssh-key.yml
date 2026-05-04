@@ -1,0 +1,63 @@
+name: Install SSH Key
+
+# Workflow manual: instala uma chave pública adicional em ~celinet/.ssh/authorized_keys
+# do servidor de produção, usando a deploy key já configurada (secrets.SSH_KEY).
+#
+# Uso: Actions → "Install SSH Key" → "Run workflow" → colar a chave pública.
+# Idempotente — não duplica se a chave já estiver instalada.
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: 'Chave pública SSH completa (ex: ssh-ed25519 AAAA... comentário)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Validate public key format
+        env:
+          PUBKEY: ${{ inputs.public_key }}
+        run: |
+          if ! echo "$PUBKEY" | grep -qE '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521) [A-Za-z0-9+/=]+( .+)?$'; then
+            echo "::error::Formato de chave pública inválido"
+            exit 1
+          fi
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ vars.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Append public key (idempotent)
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          PUBKEY: ${{ inputs.public_key }}
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" "PUBKEY=\"$PUBKEY\" bash -s" <<'EOF'
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          touch ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          if grep -qxF "$PUBKEY" ~/.ssh/authorized_keys; then
+            echo "Key already present — no change"
+          else
+            echo "$PUBKEY" >> ~/.ssh/authorized_keys
+            echo "Key appended"
+          fi
+          echo "Total keys in authorized_keys: $(wc -l < ~/.ssh/authorized_keys)"
+          EOF
