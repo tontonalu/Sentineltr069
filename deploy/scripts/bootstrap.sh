@@ -310,6 +310,19 @@ EOF
     chmod 0644 "$CRON_FILE"
 fi
 
+# ──────────── CWMP ACL reconciler (systemd + iptables) ────────────
+# Worker grava /opt/sentinelacs/cwmp-acl/cidrs.txt; systemd path-unit
+# detecta a mudança e dispara o reconciler que aplica iptables. Toda a
+# lógica está em cwmp-acl-setup.sh — chamado tanto aqui (provisão nova)
+# quanto pelo deploy.yml (servers já provisionados ganham via deploy).
+SCRIPTS_DIR=$(dirname "$0")
+if [ -f "$SCRIPTS_DIR/cwmp-acl-setup.sh" ]; then
+    log "instalando CWMP ACL reconciler"
+    bash "$SCRIPTS_DIR/cwmp-acl-setup.sh"
+else
+    warn "cwmp-acl-setup.sh ausente — bootstrap incompleto, deploy.yml repete"
+fi
+
 # ──────────── Resumo + próximos passos ────────────
 cat <<EOF
 

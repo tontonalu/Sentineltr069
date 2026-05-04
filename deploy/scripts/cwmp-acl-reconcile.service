@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile CWMP ACL into iptables (port 7547)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cwmp-acl-reconcile
+# Rodando como root é intencional — precisa CAP_NET_ADMIN para iptables.
+User=root
+# Não persistir no boot — o .path-unit dispara quando o arquivo aparece/muda.
+RemainAfterExit=no

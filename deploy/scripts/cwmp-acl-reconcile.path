@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch CWMP ACL file for changes
+After=multi-user.target
+
+[Path]
+PathChanged=/opt/sentinelacs/cwmp-acl/cidrs.txt
+PathExists=/opt/sentinelacs/cwmp-acl/cidrs.txt
+Unit=cwmp-acl-reconcile.service
+
+[Install]
+WantedBy=multi-user.target

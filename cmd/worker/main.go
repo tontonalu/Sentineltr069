@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
+	aclapp "github.com/celinet/sentinel-acs/internal/application/acl"
 	alertapp "github.com/celinet/sentinel-acs/internal/application/alerting"
 	appintegration "github.com/celinet/sentinel-acs/internal/application/integration"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
@@ -62,6 +63,12 @@ const (
 	// e dispara notificações respeitando cooldown.
 	alertTickInterval = 1 * time.Minute
 	alertTickTimeout  = 45 * time.Second
+
+	// ACL syncer: 30s entre ticks. Frequência alta porque a operação é
+	// barata (read DB + write file) e o impacto de "ACL desatualizada na
+	// 7547" é alto.
+	aclSyncInterval = 30 * time.Second
+	aclFilePath     = "/var/cwmp-acl/cidrs.txt"
 )
 
 func main() {
@@ -158,6 +165,14 @@ func run() error {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	// ACL syncer — escreve a lista de CIDRs autorizados num arquivo
+	// montado do host. O systemd path-unit no host detecta a mudança e
+	// reconcilia iptables. Roda em goroutine própria para não competir
+	// com os tickers de sync/telemetria/alerting.
+	aclRepo := pgdb.NewTR069ACLRepo(pgPool)
+	aclSyncer := aclapp.NewSyncer(aclRepo, aclFilePath)
+	go aclSyncer.Run(rootCtx, aclSyncInterval)
 
 	// Tickers
 	genieTicker := time.NewTicker(syncInterval)

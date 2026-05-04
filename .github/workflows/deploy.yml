@@ -81,6 +81,20 @@ jobs:
             rm -rf /tmp/sentinel-stage
           '
 
+      - name: Apply CWMP ACL reconciler (host-side, root)
+        # Idempotente. Instala/atualiza os arquivos systemd que rodam o
+        # reconciler de iptables para a porta 7547. Precisa root porque
+        # mexe em /etc/systemd/system. Roda como `celinet` direto via
+        # sudo (NOPASSWD) — não passa por `sudo -u sentinel` porque o
+        # usuário sentinel é não-privilegiado.
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" \
+            'sudo /opt/sentinelacs/scripts/cwmp-acl-setup.sh' || \
+            echo "::warning::cwmp-acl-setup falhou — pode estar desatualizado em prod"
+
       - name: Run deploy script (server-side)
         env:
           TARGET_TAG: ${{ steps.tag.outputs.value }}

@@ -133,4 +133,9 @@ services:
       redis:    { condition: service_healthy }
       genieacs: { condition: service_started }
     networks: [internal]
+    volumes:
+      # ACL TR-069 — worker escreve a lista canônica de CIDRs aqui;
+      # systemd path-unit no host (cwmp-acl-reconcile) detecta a mudança
+      # e aplica via iptables-restore. Diretório criado pelo bootstrap.
+      - /opt/sentinelacs/cwmp-acl:/var/cwmp-acl:rw
     restart: unless-stopped

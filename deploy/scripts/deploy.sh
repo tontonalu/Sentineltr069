@@ -75,6 +75,11 @@ echo "[deploy] tag atual: ${CURRENT_SHA:-(nenhuma)}"
 echo "[deploy] puxando imagens"
 $COMPOSE pull --quiet 2>&1 | tail -5
 
+# Nota: a instalação dos arquivos systemd do CWMP ACL reconciler exige
+# root (escreve em /etc/systemd/system) e fica fora deste script.
+# É feita pelo bootstrap.sh (servidor novo) ou por um passo dedicado
+# no deploy.yml que chama cwmp-acl-setup.sh com privilégios.
+
 # ──────────── Migrações ────────────
 echo "[deploy] rodando migrations"
 $COMPOSE run --rm --entrypoint /usr/local/bin/migrate app -cmd up
