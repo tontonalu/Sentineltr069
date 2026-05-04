@@ -140,10 +140,12 @@ func run() error {
 	var (
 		provConfigRepo *pgdb.ProvisioningConfigRepo
 		provSyncer     *provapp.Syncer
+		tr069ACLRepo   *pgdb.TR069ACLRepo
 	)
 	if pgPool != nil {
 		provConfigRepo = pgdb.NewProvisioningConfigRepo(pgPool)
 		provSyncer = provapp.NewSyncer(provConfigRepo, genieClient)
+		tr069ACLRepo = pgdb.NewTR069ACLRepo(pgPool)
 	}
 
 	// Templates & Provisioning (Fase 3) — service requer pool, mas a UI/API só
@@ -216,6 +218,11 @@ func run() error {
 	var settingsProvH *handlers.SettingsProvisioningHandler
 	if provConfigRepo != nil {
 		settingsProvH = &handlers.SettingsProvisioningHandler{Configs: provConfigRepo, Syncer: provSyncer}
+	}
+
+	var settingsTR069ACLH *handlers.SettingsTR069ACLHandler
+	if tr069ACLRepo != nil {
+		settingsTR069ACLH = &handlers.SettingsTR069ACLHandler{ACL: tr069ACLRepo}
 	}
 
 	templatesH := &handlers.TemplatesHandler{
@@ -389,6 +396,21 @@ func run() error {
 					r.Use(mw.RequirePermission("provisioning_config", "manage"))
 					r.Post("/", settingsProvH.Update)
 					r.Post("/sync", settingsProvH.Sync)
+				})
+			})
+		}
+
+		// Settings · TR-069 ACL — lista de CIDRs autorizados a falar com a
+		// porta CWMP. Persistido aqui; enforcement no kernel é feito por um
+		// reconciler separado (worker → file → systemd path-unit → iptables).
+		if settingsTR069ACLH != nil {
+			r.Route("/settings/tr069-acl", func(r chi.Router) {
+				r.Use(mw.RequirePermission("tr069_acl", "read"))
+				r.Get("/", settingsTR069ACLH.Show)
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("tr069_acl", "manage"))
+					r.Post("/", settingsTR069ACLH.Create)
+					r.Post("/{id}/delete", settingsTR069ACLH.Delete)
 				})
 			})
 		}
