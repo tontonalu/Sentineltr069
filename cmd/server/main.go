@@ -416,6 +416,8 @@ func run() error {
 				Post("/{id}/connection-request", devicesH.ConnectionRequest)
 			r.With(mw.RequirePermission("device", "reboot")).
 				Post("/{id}/reboot", devicesH.Reboot)
+			r.With(mw.RequirePermission("device", "delete")).
+				Post("/{id}/delete", devicesH.Delete)
 
 			// Aplicar profile a este device — exige provisioning.apply.
 			if provService != nil {

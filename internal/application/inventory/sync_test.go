@@ -223,3 +223,64 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteDevice cobre o happy-path e o caso de GenieACS 404 (já apagado lá),
+// que deve ser tratado como sucesso parcial e seguir para a deleção no Postgres.
+func TestDeleteDevice(t *testing.T) {
+	cases := []struct {
+		name       string
+		genieAStat int  // status code que o NBI retorna no DELETE
+		wantErr    bool
+	}{
+		{"happy path 200", http.StatusOK, false},
+		{"genieacs 404 ignored", http.StatusNotFound, false},
+		{"genieacs 500 fails", http.StatusInternalServerError, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			devices := newFakeDeviceRepo()
+			customers := newFakeCustomerRepo()
+			vendors := newFakeVendorRepo()
+			models := newFakeModelRepo()
+
+			// Seed um device no fake repo via Upsert
+			seed := &domain.Device{GenieACSID: "ABC-123", SerialNumber: "SN001"}
+			if err := devices.Upsert(context.Background(), seed); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			deleteCalled := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodDelete {
+					deleteCalled = true
+					w.WriteHeader(tc.genieAStat)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("[]"))
+			}))
+			defer srv.Close()
+
+			svc := NewSyncService(devices, customers, vendors, models,
+				genieacs.New(srv.URL, "", ""), 30*time.Minute)
+
+			err := svc.DeleteDevice(context.Background(), seed.ID)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("esperava erro, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			if !deleteCalled {
+				t.Error("genieacs DELETE não foi chamado")
+			}
+			if _, err := devices.GetByGenieACSID(context.Background(), "ABC-123"); err == nil {
+				t.Error("esperava device removido do repo")
+			}
+		})
+	}
+}

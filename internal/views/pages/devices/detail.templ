@@ -17,12 +17,14 @@ type DetailInput struct {
 	// Permissões do usuário corrente (para mostrar/esconder botões).
 	CanReboot            bool
 	CanConnectionRequest bool
+	CanDelete            bool
 }
 
 func DetailFromUser(u *identity.User, perms *identity.EffectivePermissions, in DetailInput) DetailInput {
 	if perms != nil {
 		in.CanReboot = perms.Has("device", "reboot", identity.GlobalScope)
 		in.CanConnectionRequest = perms.Has("device", "connection_req", identity.GlobalScope)
+		in.CanDelete = perms.Has("device", "delete", identity.GlobalScope)
 	}
 	_ = u
 	return in
@@ -179,7 +181,7 @@ templ Detail(csrfToken string, in DetailInput) {
 }
 
 templ deviceActions(csrfToken string, in DetailInput) {
-	if in.CanReboot || in.CanConnectionRequest {
+	if in.CanReboot || in.CanConnectionRequest || in.CanDelete {
 		<section class="rounded-lg bg-white p-4 shadow">
 			<div class="flex flex-wrap items-center gap-2">
 				if in.CanConnectionRequest {
@@ -196,6 +198,17 @@ templ deviceActions(csrfToken string, in DetailInput) {
 					>
 						<input type="hidden" name="_csrf" value={ csrfToken }/>
 						<button type="submit" class="btn-primary">Reboot</button>
+					</form>
+				}
+				if in.CanDelete {
+					<form
+						method="POST"
+						action={ templ.URL("/devices/" + in.Device.ID.String() + "/delete") }
+						onsubmit="return confirm('Apagar este device do ACS e do inventário? Irreversível.');"
+						class="ml-auto"
+					>
+						<input type="hidden" name="_csrf" value={ csrfToken }/>
+						<button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700">Excluir</button>
 					</form>
 				}
 			</div>

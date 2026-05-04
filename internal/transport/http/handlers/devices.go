@@ -182,6 +182,24 @@ func (h *DevicesHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/devices/"+d.ID.String(), http.StatusSeeOther)
 }
 
+// Delete POST /devices/{id}/delete — remove o device do Postgres e do ACS upstream.
+func (h *DevicesHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	d := h.deviceFromURL(w, r)
+	if d == nil {
+		return
+	}
+	if h.SyncSvc == nil {
+		http.Error(w, "sync indisponível", http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.SyncSvc.DeleteDevice(r.Context(), d.ID); err != nil {
+		logger.FromContext(r.Context()).Error("delete device", "err", err, "device", d.GenieACSID)
+		http.Error(w, "falha ao excluir device", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/devices?deleted=1", http.StatusSeeOther)
+}
+
 // deviceFromURL é helper compartilhado para os handlers de ação.
 // Já trata 404 e 400; devolve nil quando a request foi respondida.
 func (h *DevicesHandler) deviceFromURL(w http.ResponseWriter, r *http.Request) *domain.Device {

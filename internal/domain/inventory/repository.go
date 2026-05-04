@@ -73,4 +73,7 @@ type DeviceRepository interface {
 
 	// MarkInform — chamado pelo sync; atualiza last_inform_at + last_boot_at + status.
 	MarkInform(ctx context.Context, genieacsID string, lastInform time.Time, lastBoot *time.Time, fwVersion string) error
+
+	// Delete remove o device do Postgres. Retorna ErrDeviceNotFound se não existir.
+	Delete(ctx context.Context, id uuid.UUID) error
 }

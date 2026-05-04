@@ -173,16 +173,6 @@ func (s *SyncService) syncDevice(
 		"Device.DeviceInfo.SerialNumber",
 	)
 
-	// CPEs reais sempre enviam DeviceID.SerialNumber no Inform — é mandatório
-	// em TR-069. Scanners de internet (Censys/Shodan e similares) atingem a
-	// 7547 com Informs malformados ou sem DeviceID e geram entradas-lixo no
-	// GenieACS. Sem serial, descartamos antes de poluir o inventário.
-	if serial == "" {
-		logger.FromContext(ctx).Debug("skipping device without serial",
-			"device_id", d.ID, "manufacturer", manufacturer)
-		return nil
-	}
-
 	oui := genieacs.FirstNonEmpty(d.Raw, "DeviceID.OUI")
 
 	fwVersion := genieacs.FirstNonEmpty(d.Raw,
@@ -297,6 +287,36 @@ func (s *SyncService) syncDevice(
 	} else {
 		res.Updated++
 	}
+	return nil
+}
+
+// DeleteDevice remove um device do ACS upstream e do Postgres. Sequência
+// importante: GenieACS-primeiro, Postgres-depois. Se o app crashar entre os
+// dois passos, o device some do GenieACS mas continua no Postgres — o
+// próximo Tick não re-cria (não está mais no NBI) e o usuário pode reexcluir
+// pelo botão sem ver erro. Inversão deixaria órfão no GenieACS.
+//
+// 404 do GenieACS é ignorado: o registro pode já ter sido apagado de lá em
+// outra janela; nosso objetivo é convergir.
+func (s *SyncService) DeleteDevice(ctx context.Context, deviceID uuid.UUID) error {
+	dev, err := s.devices.GetByID(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.genie.DeleteDevice(ctx, dev.GenieACSID); err != nil {
+		var apiErr *genieacs.APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != 404 {
+			return fmt.Errorf("delete genieacs: %w", err)
+		}
+	}
+
+	if err := s.devices.Delete(ctx, deviceID); err != nil {
+		return fmt.Errorf("delete postgres: %w", err)
+	}
+
+	logger.FromContext(ctx).Info("device deleted",
+		"device_id", deviceID, "genieacs_id", dev.GenieACSID)
 	return nil
 }
 

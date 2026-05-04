@@ -502,6 +502,19 @@ func (r *DeviceRepo) LinkCustomer(ctx context.Context, deviceID uuid.UUID, custo
 	return err
 }
 
+// Delete remove o registro do Postgres. O caller é responsável por também
+// remover do GenieACS (via Client.DeleteDevice) — ver inventory.SyncService.
+func (r *DeviceRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM devices WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return inventory.ErrDeviceNotFound
+	}
+	return nil
+}
+
 // MarkInform atualiza os campos de "última atividade" sem tocar nos vínculos.
 // Status é recalculado pelo caller (sync job sabe o threshold configurado).
 func (r *DeviceRepo) MarkInform(ctx context.Context, genieacsID string, lastInform time.Time, lastBoot *time.Time, fwVersion string) error {

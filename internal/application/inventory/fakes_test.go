@@ -107,6 +107,18 @@ func (r *fakeDeviceRepo) MarkInform(_ context.Context, genieacsID string, lastIn
 	return nil
 }
 
+func (r *fakeDeviceRepo) Delete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.byID[id]
+	if !ok {
+		return domain.ErrDeviceNotFound
+	}
+	delete(r.byID, id)
+	delete(r.byGenie, d.GenieACSID)
+	return nil
+}
+
 // ──────────── CustomerRepo fake ────────────
 
 type fakeCustomerRepo struct {
