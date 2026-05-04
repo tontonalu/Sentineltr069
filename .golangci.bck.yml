@@ -1,0 +1,52 @@
+# SentinelACS — golangci-lint config
+# Lints conservadores; subimos a régua à medida que o codebase amadurece.
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.23"
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - gosec
+    - revive
+    - unconvert
+    - unparam
+    # misspell removido: codebase em PT-BR (cancelado, comando, suspenso etc.
+    # são corretos; misspell trata como inglês e flagga falso-positivos).
+
+linters-settings:
+  revive:
+    rules:
+      - name: var-naming
+      - name: package-comments
+        disabled: true   # ativaremos quando os pacotes amadurecerem
+  gosec:
+    # NOTA: o gosec embutido no golangci-lint v1.64.x ainda não conhece
+    # G124/G710 (rules mais recentes do gosec standalone). Por isso ficam
+    # apenas excluídos no job dedicado de security (-exclude=...). Aqui
+    # listamos só os códigos que ESTA versão entende.
+    excludes:
+      - G101   # falso-positivo: mapas de NOMES de envs (não credenciais)
+      - G104   # estilístico: resp.Body.Close em paths de erro já tratado
+      - G115   # uint32(len(hash)) seguro — argon2 hash tem tamanho fixo
+      - G304   # file inclusion via variable — paths vêm de config validada
+
+issues:
+  exclude-dirs:
+    - internal/views        # arquivos *_templ.go gerados
+    - internal/infrastructure/postgres/gen
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - unparam
