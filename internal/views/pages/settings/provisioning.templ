@@ -1,0 +1,153 @@
+package settings
+
+import (
+	"strconv"
+
+	prov "github.com/celinet/sentinel-acs/internal/domain/provisioning"
+	"github.com/celinet/sentinel-acs/internal/views/components"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+// ProvisioningDraft mantém os valores do form para repopular em erro.
+type ProvisioningDraft struct {
+	CWMPUrl         string
+	InformIntervalS int
+	DefaultCRUser   string
+	DefaultCRPass   string
+	PresetName      string
+}
+
+templ ProvisioningPage(csrfToken string, draft ProvisioningDraft, cfg *prov.Config, canManage bool, errMsg, okMsg string) {
+	@layouts.Base("Configurações · Provisionamento") {
+		@Tabs()
+		@components.PageHeader("Provisionamento TR-069", "URL do ACS, intervalo de Inform e credenciais aplicadas pelo GenieACS a todo CPE.") {
+		}
+
+		@syncBanner(cfg, errMsg, okMsg)
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+			<div class="lg:col-span-2">
+				@components.Card("Configuração canônica") {
+					@provisioningForm(csrfToken, draft, canManage)
+				}
+			</div>
+			<div>
+				@components.Card("Como apontar um CPE") {
+					@cpeInstructions(draft)
+				}
+			</div>
+		</div>
+	}
+}
+
+templ syncBanner(cfg *prov.Config, errMsg, okMsg string) {
+	if errMsg != "" {
+		<div class="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+			{ errMsg }
+		</div>
+	}
+	if okMsg != "" {
+		<div class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
+			{ okMsg }
+		</div>
+	}
+	<div class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-sentinel-100 bg-white p-3 text-sm">
+		<div class="text-sentinel-700">
+			if cfg.LastSyncedAt != nil {
+				<span class="font-medium">Última sincronização:</span> { cfg.LastSyncedAt.Local().Format("02/01/2006 15:04") }
+				if cfg.LastSyncError != "" {
+					<span class="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">com erro</span>
+				}
+			} else {
+				<span class="text-sentinel-500">Ainda não sincronizado com o GenieACS.</span>
+			}
+		</div>
+		<div class="text-xs text-sentinel-500">
+			Preset: <code class="rounded bg-sentinel-50 px-1 py-0.5">{ cfg.PresetName }</code>
+		</div>
+	</div>
+}
+
+templ provisioningForm(csrfToken string, draft ProvisioningDraft, canManage bool) {
+	<form method="POST" action="/settings/provisioning" class="space-y-4">
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+
+		<div>
+			<label for="cwmp_url" class="block text-sm font-medium text-sentinel-700">URL do ACS (CWMP)</label>
+			<input id="cwmp_url" type="url" name="cwmp_url" value={ draft.CWMPUrl }
+				placeholder="http://acs.exemplo.com.br:7547/" required disabled?={ !canManage }
+				class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 font-mono text-sm focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
+			<p class="mt-1 text-xs text-sentinel-500">É a URL pública alcançável pelos CPEs (porta 7547). Os roteadores vão receber este valor em <code>Device.ManagementServer.URL</code>.</p>
+		</div>
+
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+			<div>
+				<label for="inform_interval_s" class="block text-sm font-medium text-sentinel-700">Intervalo de Inform (segundos)</label>
+				<input id="inform_interval_s" type="number" name="inform_interval_s"
+					value={ strconv.Itoa(draft.InformIntervalS) } min="60" max="86400" step="1"
+					required disabled?={ !canManage }
+					class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
+				<p class="mt-1 text-xs text-sentinel-500">Entre 60 e 86400. Default 300 (5 min).</p>
+			</div>
+			<div>
+				<label for="preset_name" class="block text-sm font-medium text-sentinel-700">Nome do preset/provision</label>
+				<input id="preset_name" type="text" name="preset_name" value={ draft.PresetName }
+					required disabled?={ !canManage }
+					class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 font-mono text-sm focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
+				<p class="mt-1 text-xs text-sentinel-500">Identificador no GenieACS. Default <code>sentinel-defaults</code>.</p>
+			</div>
+		</div>
+
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+			<div>
+				<label for="default_cr_user" class="block text-sm font-medium text-sentinel-700">Connection Request — Usuário</label>
+				<input id="default_cr_user" type="text" name="default_cr_user" value={ draft.DefaultCRUser }
+					autocomplete="off" disabled?={ !canManage }
+					class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 font-mono text-sm focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
+			</div>
+			<div>
+				<label for="default_cr_pass" class="block text-sm font-medium text-sentinel-700">Connection Request — Senha</label>
+				<input id="default_cr_pass" type="text" name="default_cr_pass" value={ draft.DefaultCRPass }
+					autocomplete="off" disabled?={ !canManage }
+					class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 font-mono text-sm focus:border-sentinel-500 focus:outline-none disabled:bg-sentinel-50"/>
+				<p class="mt-1 text-xs text-sentinel-500">Em branco mantém o que cada CPE já reporta.</p>
+			</div>
+		</div>
+
+		if canManage {
+			<div class="flex flex-wrap items-center justify-end gap-2 border-t border-sentinel-100 pt-4">
+				<button type="submit" formaction="/settings/provisioning/sync" class="btn-ghost">Sincronizar com GenieACS</button>
+				<button type="submit" class="btn-primary">Salvar</button>
+			</div>
+		} else {
+			<p class="border-t border-sentinel-100 pt-4 text-sm text-sentinel-500">Você tem acesso somente leitura. Peça a um superadmin para editar ou sincronizar.</p>
+		}
+	</form>
+}
+
+templ cpeInstructions(draft ProvisioningDraft) {
+	<div class="space-y-3 text-sm text-sentinel-700">
+		<p>No painel TR-069 do roteador (CWMP / Management Server):</p>
+		<dl class="space-y-2">
+			<div>
+				<dt class="text-xs font-medium uppercase tracking-wide text-sentinel-500">ACS URL</dt>
+				<dd class="rounded bg-sentinel-50 px-2 py-1 font-mono text-xs break-all">
+					if draft.CWMPUrl != "" {
+						{ draft.CWMPUrl }
+					} else {
+						<span class="text-sentinel-500">defina acima</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-xs font-medium uppercase tracking-wide text-sentinel-500">Periodic Inform Enable</dt>
+				<dd class="font-mono text-xs">true</dd>
+			</div>
+			<div>
+				<dt class="text-xs font-medium uppercase tracking-wide text-sentinel-500">Periodic Inform Interval</dt>
+				<dd class="font-mono text-xs">{ strconv.Itoa(draft.InformIntervalS) } s</dd>
+			</div>
+		</dl>
+		<p class="text-xs text-sentinel-500">Após o primeiro Inform, o GenieACS aplica o preset e o CPE aparece em <a href="/devices" class="text-sentinel-900 underline">/devices</a>.</p>
+	</div>
+}

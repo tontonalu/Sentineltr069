@@ -135,6 +135,17 @@ func run() error {
 		popRepo = pgdb.NewPOPRepo(pgPool)
 	}
 
+	// TR-069 Provisioning Config (Settings · Provisionamento) — singleton
+	// que guarda a URL CWMP exposta aos CPEs e o syncer com o GenieACS.
+	var (
+		provConfigRepo *pgdb.ProvisioningConfigRepo
+		provSyncer     *provapp.Syncer
+	)
+	if pgPool != nil {
+		provConfigRepo = pgdb.NewProvisioningConfigRepo(pgPool)
+		provSyncer = provapp.NewSyncer(provConfigRepo, genieClient)
+	}
+
 	// Templates & Provisioning (Fase 3) — service requer pool, mas a UI/API só
 	// é montada se pgPool estiver disponível.
 	var (
