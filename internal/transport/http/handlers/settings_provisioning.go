@@ -28,8 +28,15 @@ func (h *SettingsProvisioningHandler) Show(w http.ResponseWriter, r *http.Reques
 	}
 	canManage := mw.UserHasPermission(r.Context(), "provisioning_config", "manage")
 	csrf := mw.CSRFTokenFromContext(r.Context())
+
+	// Flash via query string — Update redireciona com ?saved=1 após salvar.
+	var okMsg string
+	if r.URL.Query().Get("saved") == "1" {
+		okMsg = "Configuração salva."
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = settingspages.ProvisioningPage(csrf, draftFromConfig(cfg), cfg, canManage, "", "").Render(r.Context(), w)
+	_ = settingspages.ProvisioningPage(csrf, draftFromConfig(cfg), cfg, canManage, "", okMsg).Render(r.Context(), w)
 }
 
 // Update POST /settings/provisioning
@@ -65,7 +72,7 @@ func (h *SettingsProvisioningHandler) Update(w http.ResponseWriter, r *http.Requ
 		h.renderWithError(w, r, draft, cfg, err.Error(), "")
 		return
 	}
-	http.Redirect(w, r, "/settings/provisioning", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings/provisioning?saved=1", http.StatusSeeOther)
 }
 
 // Sync POST /settings/provisioning/sync — aplica config no GenieACS.

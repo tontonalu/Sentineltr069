@@ -47,7 +47,14 @@ templ syncBanner(cfg *prov.Config, errMsg, okMsg string) {
 		</div>
 	}
 	if okMsg != "" {
-		<div class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
+		<div
+			x-data="{ show: true }"
+			x-init="setTimeout(() => show = false, 5000)"
+			x-show="show"
+			x-transition.opacity.duration.500ms
+			class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+			role="status"
+		>
 			{ okMsg }
 		</div>
 	}
