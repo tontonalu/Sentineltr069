@@ -36,7 +36,7 @@ chmod 0755 /opt/sentinelacs/cwmp-acl
 if [[ ! -f /opt/sentinelacs/cwmp-acl/cidrs.txt ]]; then
     touch /opt/sentinelacs/cwmp-acl/cidrs.txt
     chown 9001:9001 /opt/sentinelacs/cwmp-acl/cidrs.txt
-    chmod 0644 /opt/sentinelacs/cwmp-acl/cidrs.txt
+    chmod 0600 /opt/sentinelacs/cwmp-acl/cidrs.txt
 fi
 
 systemctl daemon-reload

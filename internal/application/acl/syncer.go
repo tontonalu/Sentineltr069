@@ -71,8 +71,9 @@ func (s *Syncer) Tick(ctx context.Context) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("acl: close tmp: %w", err)
 	}
-	// 0644: o systemd unit roda como root e só precisa ler.
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	// 0600: o reconciler systemd roda como root e ignora as permissões;
+	// não há outro consumidor legítimo do arquivo no host.
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		return fmt.Errorf("acl: chmod: %w", err)
 	}
 
