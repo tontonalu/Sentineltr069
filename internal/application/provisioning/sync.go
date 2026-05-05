@@ -67,22 +67,26 @@ func (s *Syncer) recordFailure(ctx context.Context, syncErr error) {
 // Usa Device.* (TR-181); o GenieACS normaliza CPEs TR-098/IGD via aliases
 // internos para a maioria dos vendors suportados (Huawei, ZTE, Intelbras…).
 //
-// `now` é a built-in do runtime do GenieACS — força refresh imediato do
-// path declarado.
+// `Date.now()` no campo de timestamp força o GenieACS a tratar o valor como
+// "atual nesta sessão" — qualquer valor cacheado mais antigo dispara refresh
+// e o caminho é re-declarado no CPE. Versão anterior usava `now` como se
+// fosse global, mas no runtime de provisions do GenieACS isso não existe e
+// o script falhava com `ReferenceError: now is not defined`, abortando a
+// aplicação inteira do preset.
 func buildProvisionScript(c *prov.Config) string {
 	script := fmt.Sprintf(`
 const url = %q;
 const interval = %d;
-declare("Device.ManagementServer.URL",                    {value: now}, {value: url});
-declare("Device.ManagementServer.PeriodicInformEnable",   {value: now}, {value: true});
-declare("Device.ManagementServer.PeriodicInformInterval", {value: now}, {value: interval});
+declare("Device.ManagementServer.URL",                    {value: Date.now()}, {value: url});
+declare("Device.ManagementServer.PeriodicInformEnable",   {value: Date.now()}, {value: true});
+declare("Device.ManagementServer.PeriodicInformInterval", {value: Date.now()}, {value: interval});
 `, c.CWMPUrl, c.InformIntervalS)
 
 	if c.DefaultCRUser != "" {
-		script += fmt.Sprintf(`declare("Device.ManagementServer.ConnectionRequestUsername", {value: now}, {value: %q});`+"\n", c.DefaultCRUser)
+		script += fmt.Sprintf(`declare("Device.ManagementServer.ConnectionRequestUsername", {value: Date.now()}, {value: %q});`+"\n", c.DefaultCRUser)
 	}
 	if c.DefaultCRPass != "" {
-		script += fmt.Sprintf(`declare("Device.ManagementServer.ConnectionRequestPassword", {value: now}, {value: %q});`+"\n", c.DefaultCRPass)
+		script += fmt.Sprintf(`declare("Device.ManagementServer.ConnectionRequestPassword", {value: Date.now()}, {value: %q});`+"\n", c.DefaultCRPass)
 	}
 	return script
 }
