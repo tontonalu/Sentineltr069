@@ -85,22 +85,23 @@ func (c Customer) IsActive() bool { return c.Status == CustomerActive }
 // Device — CPE espelhado do GenieACS, com vínculos para o domínio de negócio.
 // genieacs_id é o _id no Mongo do GenieACS — chave dura de sincronização.
 type Device struct {
-	ID              uuid.UUID
-	GenieACSID      string
-	SerialNumber    string
-	MAC             string
-	OUI             string
-	ModelID         *uuid.UUID
-	CustomerID      *uuid.UUID
-	POPID           *uuid.UUID
-	Status          string
-	FirmwareVersion string
-	IPWAN           net.IP
-	LastInformAt    *time.Time
-	LastBootAt      *time.Time
-	Tags            []string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                 uuid.UUID
+	GenieACSID         string
+	SerialNumber       string
+	MAC                string
+	OUI                string
+	ModelID            *uuid.UUID
+	CustomerID         *uuid.UUID
+	POPID              *uuid.UUID
+	Status             string
+	FirmwareVersion    string
+	IPWAN              net.IP
+	LastInformAt       *time.Time
+	LastBootAt         *time.Time
+	Tags               []string
+	IsHomologationLab  bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // ComputeStatus deriva online/offline a partir de last_inform_at e um threshold.

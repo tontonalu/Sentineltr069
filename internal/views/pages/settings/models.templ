@@ -16,7 +16,7 @@ type ModelDraft struct {
 	Description string
 }
 
-templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Vendor) {
+templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Vendor, homCount map[uuid.UUID]int) {
 	@layouts.Base("Configurações · Modelos") {
 		@Tabs()
 		@components.PageHeader("Modelos de device", "Modelos cadastrados por fabricante") {
@@ -27,7 +27,7 @@ templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Ve
 				@components.EmptyState("router", "Nenhum modelo cadastrado", "Cadastre um vendor antes e depois adicione os modelos.")
 			} else {
 				@components.Table(true) {
-					@components.TableHeader([]string{"Vendor", "Modelo", "TR Data Model", "Descrição"})
+					@components.TableHeader([]string{"Vendor", "Modelo", "TR Data Model", "Homologações", "Descrição"})
 					<tbody>
 						for _, m := range models {
 							<tr>
@@ -46,6 +46,9 @@ templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Ve
 										@components.Badge("TR-098", "neutral")
 									}
 								</td>
+								<td>
+									@homCountBadge(m.ID, homCount)
+								</td>
 								<td class="text-sentinel-500">
 									if m.Description != "" {
 										{ m.Description }
@@ -60,6 +63,26 @@ templ ModelsList(models []domain.DeviceModel, vendorByID map[uuid.UUID]domain.Ve
 			}
 		}
 	}
+}
+
+// homCountBadge mostra o número de profiles homologados para o modelo.
+// Quando há ao menos 1, vira link clicável para a página de detalhes.
+templ homCountBadge(modelID uuid.UUID, counts map[uuid.UUID]int) {
+	{{ n := counts[modelID] }}
+	if n == 0 {
+		<span class="text-xs text-sentinel-500">0</span>
+	} else {
+		<a href={ templ.URL("/settings/models/" + modelID.String() + "/homologations") } class="text-xs text-blue-600 hover:underline">
+			{ countLabel(n) }
+		</a>
+	}
+}
+
+func countLabel(n int) string {
+	if n == 1 {
+		return "1 profile"
+	}
+	return intStr(n) + " profiles"
 }
 
 templ ModelNewPage(csrfToken string, vendors []domain.Vendor, draft ModelDraft, errMsg string) {

@@ -1,0 +1,423 @@
+package homologation
+
+import (
+	"fmt"
+
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+type WizardInput struct {
+	Session       hom.Session
+	Device        *inv.Device
+	Model         *inv.DeviceModel
+	Vendor        *inv.Vendor
+	CanonicalKeys []hom.CanonicalKey
+	Tree          []genieacs.TreeEntry
+	TreePrefix    string
+	TreeSearch    string
+	CSRF          string
+}
+
+templ Wizard(in WizardInput) {
+	@layouts.Base("Wizard de homologação") {
+		<div class="space-y-6">
+			@wizardHeader(in)
+			@wizardActions(in)
+			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+				@treePanel(in)
+				@mappingsPanel(in)
+			</div>
+			if in.Session.Status == hom.SessionTesting {
+				@finalizePanel(in)
+			}
+		</div>
+	}
+}
+
+templ wizardHeader(in WizardInput) {
+	<div class="flex items-start justify-between">
+		<div>
+			<h1 class="text-2xl font-semibold text-sentinel-900">Sessão de homologação</h1>
+			<p class="text-sm text-sentinel-500">
+				if in.Vendor != nil && in.Model != nil {
+					{ in.Vendor.Name } { in.Model.Model } <span class="ml-2 rounded bg-sentinel-50 px-1.5 text-xs uppercase">{ in.Model.TRDataModel }</span>
+				}
+			</p>
+			<p class="text-xs text-sentinel-500 mt-1">
+				if in.Device != nil {
+					Device: <span class="font-mono">{ in.Device.GenieACSID }</span>
+				}
+			</p>
+		</div>
+		<div class="flex items-center gap-2">
+			@statusBadge(in.Session.Status)
+			<a href="/homologation" class="btn-ghost">← Voltar</a>
+		</div>
+	</div>
+}
+
+templ wizardActions(in WizardInput) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		<div class="flex flex-wrap items-center gap-2">
+			if in.Session.Status != hom.SessionCompleted && in.Session.Status != hom.SessionAbandoned {
+				<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/probe") }>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<button type="submit" class="btn-primary">
+						if len(in.Session.TreeSnapshot) == 0 {
+							Sondar árvore TR-069
+						} else {
+							Re-sondar árvore
+						}
+					</button>
+				</form>
+				if len(in.Session.TreeSnapshot) > 0 {
+					<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/automap") }>
+						<input type="hidden" name="_csrf" value={ in.CSRF }/>
+						<button type="submit" class="btn-secondary" title="Cria mappings automaticamente para canonical_keys cujos hint paths existem na árvore">
+							Auto-mapear do catálogo
+						</button>
+					</form>
+				}
+			}
+			if in.Session.Status != hom.SessionCompleted && in.Session.Status != hom.SessionAbandoned {
+				<form
+					method="POST"
+					action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/abandon") }
+					onsubmit="return confirm('Abandonar esta sessão?');"
+					class="ml-auto"
+				>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<button type="submit" class="btn-ghost text-red-600">Abandonar</button>
+				</form>
+			}
+			if in.Session.GeneratedProfileID != nil {
+				<a class="btn-primary ml-auto" href={ templ.URL("/templates/" + in.Session.GeneratedProfileID.String()) }>Ver profile gerado</a>
+			}
+		</div>
+		<p class="mt-2 text-xs text-amber-700">
+			⚠ Este device pode receber escritas reais. Use apenas com CPEs de teste.
+		</p>
+	</section>
+}
+
+templ treePanel(in WizardInput) {
+	<section class="rounded-lg bg-white p-6 shadow">
+		<h2 class="mb-3 text-lg font-medium text-sentinel-900">Árvore TR-069</h2>
+		if len(in.Session.TreeSnapshot) == 0 {
+			<p class="text-sm text-sentinel-500">
+				Clique em <strong>Sondar árvore TR-069</strong> para baixar a árvore atual do device via GenieACS.
+			</p>
+		} else {
+			<form method="GET" class="mb-3 flex gap-2">
+				<input type="text" name="prefix" value={ in.TreePrefix } placeholder="Filtro por prefixo (ex: Device.WiFi)" class="input flex-1"/>
+				<input type="text" name="q" value={ in.TreeSearch } placeholder="Busca em qualquer parte" class="input flex-1"/>
+				<button type="submit" class="btn-secondary">Filtrar</button>
+			</form>
+			<p class="text-xs text-sentinel-500 mb-2">{ entriesLabel(len(in.Tree)) }</p>
+			<div class="max-h-[480px] overflow-y-auto rounded border border-sentinel-100">
+				<table class="min-w-full divide-y divide-sentinel-100 text-xs">
+					<thead class="bg-sentinel-50 sticky top-0">
+						<tr>
+							<th class="px-2 py-1 text-left">path</th>
+							<th class="px-2 py-1 text-left">valor</th>
+							<th class="px-2 py-1 text-left">tipo</th>
+							<th class="px-2 py-1"></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, e := range in.Tree {
+							<tr class="hover:bg-sentinel-50">
+								<td class="px-2 py-1 font-mono">{ e.Path }</td>
+								<td class="px-2 py-1 font-mono text-sentinel-700">{ valueString(e.Value) }</td>
+								<td class="px-2 py-1 text-sentinel-500">{ shortType(e.Type) }</td>
+								<td class="px-2 py-1">
+									if in.Session.Status.IsActive() {
+										@quickAddMappingForm(in, e)
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</section>
+}
+
+// quickAddMappingForm: botão "+ adicionar" inline que pré-popula tr_path com
+// o path da linha. Operador escolhe canonical_key na próxima tela ou no form
+// ao lado.
+templ quickAddMappingForm(in WizardInput, e genieacs.TreeEntry) {
+	<form
+		method="POST"
+		action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings") }
+		class="inline"
+	>
+		<input type="hidden" name="_csrf" value={ in.CSRF }/>
+		<input type="hidden" name="tr_path" value={ e.Path }/>
+		<input type="hidden" name="data_type" value={ inferDataType(e.Type) }/>
+		<input
+			type="text"
+			name="canonical_key"
+			placeholder="canonical_key"
+			required
+			class="input w-32 text-xs py-0"
+		/>
+		<button type="submit" class="text-blue-600 hover:underline">+ add</button>
+	</form>
+}
+
+templ mappingsPanel(in WizardInput) {
+	<section class="rounded-lg bg-white p-6 shadow">
+		<h2 class="mb-3 text-lg font-medium text-sentinel-900">Mappings desta sessão</h2>
+		if len(in.Session.Mappings) == 0 {
+			<p class="text-sm text-sentinel-500">
+				Nenhum mapeamento ainda. Use a árvore ao lado para adicionar paths, ou cadastre manualmente abaixo.
+			</p>
+		} else {
+			<table class="min-w-full divide-y divide-sentinel-100 text-xs">
+				<thead>
+					<tr class="text-left text-sentinel-500">
+						<th class="py-1">canonical_key</th>
+						<th>tr_path</th>
+						<th>value_template</th>
+						<th>tipo</th>
+						<th>read</th>
+						<th>write</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, m := range in.Session.Mappings {
+						<tr class="border-t border-sentinel-100">
+							<td class="py-1 font-mono">{ m.CanonicalKey }</td>
+							<td class="font-mono text-sentinel-700">{ m.TRPath }</td>
+							<td class="py-1">
+								if in.Session.Status.IsActive() {
+									@templateEditForm(in, m)
+								} else {
+									<span class="font-mono text-sentinel-700">{ defaultIfEmpty(m.ValueTemplate, "—") }</span>
+								}
+							</td>
+							<td>{ string(m.DataType) }</td>
+							<td>@testStatusBadge(m.ReadStatus, m.LastError)</td>
+							<td>@testStatusBadge(m.WriteStatus, m.LastError)</td>
+							<td>
+								@mappingRowActions(in, m)
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+		if in.Session.Status.IsActive() {
+			<details class="mt-4">
+				<summary class="cursor-pointer text-sm text-blue-600">+ adicionar manualmente</summary>
+				<form
+					method="POST"
+					action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings") }
+					class="mt-2 grid grid-cols-1 gap-2 text-sm"
+					x-data="{ ck: '' }"
+				>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">canonical_key</span>
+						<input
+							list="canonical-keys-datalist"
+							type="text"
+							name="canonical_key"
+							required
+							placeholder="ex: wifi.ssid.2g (escolha do catálogo ou digite livre)"
+							class="input mt-1 w-full font-mono"
+							x-model="ck"
+						/>
+						<datalist id="canonical-keys-datalist">
+							for _, k := range in.CanonicalKeys {
+								<option value={ k.Key }>{ k.LabelPT }</option>
+							}
+						</datalist>
+					</label>
+					<input type="text" name="tr_path" placeholder="tr_path completo (ex: Device.WiFi.SSID.1.SSID)" required class="input"/>
+					<input type="text" name="value_template" placeholder='value_template (opcional, ex: {{ customer.pppoe_login }}_2G)' class="input"/>
+					<div class="flex items-center gap-2">
+						<select name="data_type" class="input">
+							<option>string</option><option>int</option><option>bool</option>
+							<option>unsignedInt</option><option>dateTime</option>
+						</select>
+						<label class="inline-flex items-center gap-1 text-xs">
+							<input type="checkbox" name="is_secret" value="1"/> secret
+						</label>
+						<button type="submit" class="btn-primary ml-auto">Adicionar</button>
+					</div>
+				</form>
+			</details>
+		}
+	</section>
+}
+
+// templateEditForm: input inline pra editar value_template sem ir pra outra
+// página. Submit via POST → redirect → re-render. Pesquisa de UX: input
+// continua mesmo após submit, com novo valor.
+templ templateEditForm(in WizardInput, m hom.Mapping) {
+	<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings/" + m.ID.String() + "/template") } class="flex gap-1">
+		<input type="hidden" name="_csrf" value={ in.CSRF }/>
+		<input type="text" name="value_template" value={ m.ValueTemplate } placeholder="(usa valor lido)" class="input w-full text-xs py-0 font-mono"/>
+		<button type="submit" class="text-blue-600 hover:underline" title="Salvar template">✓</button>
+	</form>
+}
+
+templ mappingRowActions(in WizardInput, m hom.Mapping) {
+	<div class="flex items-center gap-1">
+		if in.Session.Status.IsActive() {
+			<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings/" + m.ID.String() + "/test-read") } class="inline">
+				<input type="hidden" name="_csrf" value={ in.CSRF }/>
+				<button type="submit" class="text-blue-600 hover:underline" title="Testar leitura">read</button>
+			</form>
+			if !m.IsSecret {
+				<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings/" + m.ID.String() + "/test-write") } class="inline">
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<input type="hidden" name="test_value" value={ writeTestValue(m) }/>
+					<button type="submit" class="text-blue-600 hover:underline" title="Testar escrita (com restore)">write</button>
+				</form>
+			}
+			<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings/" + m.ID.String() + "/delete") } class="inline">
+				<input type="hidden" name="_csrf" value={ in.CSRF }/>
+				<button type="submit" class="text-red-600 hover:underline" title="Remover">×</button>
+			</form>
+		}
+	</div>
+}
+
+templ testStatusBadge(s hom.TestStatus, lastErr *string) {
+	switch s {
+		case hom.TestOK:
+			<span class="badge-success" title="OK">ok</span>
+		case hom.TestFail:
+			<span class="badge-danger" title={ optString(lastErr) }>fail</span>
+		case hom.TestSkipped:
+			<span class="badge-info">skip</span>
+		default:
+			<span class="badge-info">—</span>
+	}
+}
+
+templ finalizePanel(in WizardInput) {
+	<section class="rounded-lg bg-white p-6 shadow">
+		<h2 class="mb-2 text-lg font-medium text-sentinel-900">Finalizar homologação</h2>
+		<p class="text-sm text-sentinel-500 mb-3">
+			Apenas mappings com leitura OK e escrita (OK ou skipped por is_secret) entrarão no profile.
+		</p>
+		<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/complete") } class="grid grid-cols-1 gap-2">
+			<input type="hidden" name="_csrf" value={ in.CSRF }/>
+			<label>
+				<span class="text-xs uppercase text-sentinel-500">Nome do profile</span>
+				<input type="text" name="profile_name" required class="input mt-1 w-full" placeholder={ defaultProfileName(in) }/>
+			</label>
+			<label>
+				<span class="text-xs uppercase text-sentinel-500">Descrição (opcional)</span>
+				<textarea name="description" rows="2" class="input mt-1 w-full"></textarea>
+			</label>
+			<label>
+				<span class="text-xs uppercase text-sentinel-500">Nota da homologação</span>
+				<input type="text" name="change_note" class="input mt-1 w-full" placeholder="ex: testado em CPE serial XYZ"/>
+			</label>
+			<button type="submit" class="btn-primary mt-2">Gerar profile + homologar modelo</button>
+		</form>
+	</section>
+}
+
+// ──────────────── helpers ────────────────
+
+func valueString(v any) string {
+	if v == nil {
+		return "—"
+	}
+	switch x := v.(type) {
+	case string:
+		if len(x) > 60 {
+			return x[:57] + "..."
+		}
+		return x
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case float64:
+		if x == float64(int64(x)) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%g", x)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func shortType(t string) string {
+	const prefix = "xsd:"
+	if len(t) > len(prefix) && t[:len(prefix)] == prefix {
+		return t[len(prefix):]
+	}
+	return t
+}
+
+// inferDataType faz best-effort entre o `_type` do NBI e o enum interno.
+func inferDataType(t string) string {
+	switch t {
+	case "xsd:int":
+		return "int"
+	case "xsd:boolean":
+		return "bool"
+	case "xsd:unsignedInt":
+		return "unsignedInt"
+	case "xsd:dateTime":
+		return "dateTime"
+	default:
+		return "string"
+	}
+}
+
+func optString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func entriesLabel(n int) string {
+	if n == 1 {
+		return "1 entrada"
+	}
+	return fmt.Sprintf("%d entradas", n)
+}
+
+// writeTestValue gera um valor de teste seguro a partir do valor lido — string
+// recebe sufixo "_HOM"; bool/int não são alterados (são reescritos com o mesmo
+// valor para confirmar que SetParameterValues aceita o tipo).
+func writeTestValue(m hom.Mapping) string {
+	if m.ReadValue == nil {
+		return "test"
+	}
+	rv := *m.ReadValue
+	if m.DataType == "string" {
+		return rv + "_HOM"
+	}
+	return rv
+}
+
+func defaultIfEmpty(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
+func defaultProfileName(in WizardInput) string {
+	if in.Vendor != nil && in.Model != nil {
+		return in.Vendor.Name + "_" + in.Model.Model + "_homologated_v1"
+	}
+	return "homologated_profile_v1"
+}

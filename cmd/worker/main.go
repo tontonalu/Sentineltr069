@@ -23,6 +23,7 @@ import (
 	aclapp "github.com/celinet/sentinel-acs/internal/application/acl"
 	alertapp "github.com/celinet/sentinel-acs/internal/application/alerting"
 	appintegration "github.com/celinet/sentinel-acs/internal/application/integration"
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
 	teleapp "github.com/celinet/sentinel-acs/internal/application/telemetry"
@@ -63,6 +64,10 @@ const (
 	// e dispara notificações respeitando cooldown.
 	alertTickInterval = 1 * time.Minute
 	alertTickTimeout  = 45 * time.Second
+
+	// Cleanup de snapshots de homologação: 1× ao dia, mantém últimos 30d.
+	homCleanupInterval = 24 * time.Hour
+	homSnapshotTTL     = 30 * 24 * time.Hour
 
 	// ACL syncer: 30s entre ticks. Frequência alta porque a operação é
 	// barata (read DB + write file) e o impacto de "ACL desatualizada na
@@ -121,6 +126,11 @@ func run() error {
 
 	// Provisioning executor: consome jobs queued e empurra para o NBI.
 	executor := provapp.NewExecutor(jobRepo, batchRepo, &deviceResolver{repo: deviceRepo}, genieClient)
+
+	// Homologation cleanup: zera tree_snapshot de sessões finalizadas há mais
+	// de 30 dias. Snapshots viram 1-2 MB JSONB e crescem indefinidamente sem
+	// purge. Mantém metadados (status, datas) e mappings — auditoria preserva.
+	homSessionRepo := pgdb.NewHomologationSessionRepo(pgPool)
 
 	// Telemetry collector: amostra devices online a cada 5 min e grava
 	// nas hypertables. Usa cache do GenieACS (snapshot do último inform).
@@ -184,6 +194,12 @@ func run() error {
 	alertTicker := time.NewTicker(alertTickInterval)
 	defer alertTicker.Stop()
 
+	// Cleanup de snapshots de homologação: 1× a cada 24h. Roda imediatamente
+	// no boot (catch-up se worker ficou off) e depois no ticker.
+	homCleanupTicker := time.NewTicker(homCleanupInterval)
+	defer homCleanupTicker.Stop()
+	go runHomologationCleanup(rootCtx, homSessionRepo, log)
+
 	// Voalle ticker — só ligamos se o plugin foi instanciado.
 	var voalleTicker *time.Ticker
 	if voalleSync != nil {
@@ -224,6 +240,8 @@ func run() error {
 			runTelemetry(rootCtx, collector, log)
 		case <-alertTicker.C:
 			runAlertEngine(rootCtx, alertEngine, log)
+		case <-homCleanupTicker.C:
+			runHomologationCleanup(rootCtx, homSessionRepo, log)
 		case sig := <-stop:
 			log.Info("shutdown signal received", "signal", sig.String())
 			cancel()
@@ -414,6 +432,22 @@ func runAlertEngine(ctx context.Context, e *alertapp.Engine, log *slog.Logger) {
 			"errors", res.Errors,
 			"duration", res.Duration.String(),
 		)
+	}
+}
+
+// runHomologationCleanup zera tree_snapshot de sessões finalizadas há mais
+// de homSnapshotTTL. Best-effort: erro só loga, não derruba o worker.
+func runHomologationCleanup(ctx context.Context, sessions hom.SessionRepo, log *slog.Logger) {
+	cutoff := time.Now().Add(-homSnapshotTTL)
+	tickCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer cancel()
+	n, err := sessions.PurgeOldSnapshots(tickCtx, cutoff)
+	if err != nil {
+		log.Error("homologation cleanup", "err", err)
+		return
+	}
+	if n > 0 {
+		log.Info("homologation cleanup", "purged_snapshots", n, "before", cutoff.Format(time.RFC3339))
 	}
 }
 

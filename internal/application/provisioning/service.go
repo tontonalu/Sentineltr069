@@ -56,6 +56,13 @@ type Notifier interface {
 	Notify(ctx context.Context, jobID uuid.UUID) error
 }
 
+// HomologationGate valida que um profile está homologado para um modelo.
+// Implementação opcional — quando nil, o gate é desligado (backwards-compat
+// com instalações sem o módulo de homologação).
+type HomologationGate interface {
+	IsHomologated(ctx context.Context, modelID, profileID uuid.UUID) (bool, error)
+}
+
 // Service — entrypoint da Fase 3 para aplicar profiles. Engine é injetado
 // para permitir testes/extensões via filtros.
 type Service struct {
@@ -67,6 +74,7 @@ type Service struct {
 	jobs      JobRepository
 	batches   BatchRepository
 	notify    Notifier
+	homGate   HomologationGate
 }
 
 func NewService(
@@ -80,6 +88,16 @@ func NewService(
 		engine: engine, profiles: profiles, devices: devices,
 		customers: customers, pops: pops, jobs: jobs, batches: batches, notify: notify,
 	}
+}
+
+// WithHomologationGate ativa o gate de homologação em ApplyBulk.
+// Sem ele, qualquer profile pode ir para qualquer device (comportamento
+// pré-Fase 10). Apply single (ApplyToDevice) NÃO é gated por design —
+// single shot é experimental e o operador deve poder validar manualmente
+// antes de bulk.
+func (s *Service) WithHomologationGate(g HomologationGate) *Service {
+	s.homGate = g
+	return s
 }
 
 // ApplyToDevice resolve o profile contra o device + customer + pop e
@@ -150,6 +168,19 @@ func (s *Service) ApplyBulk(ctx context.Context, req BulkRequest) (*BulkResult, 
 		return nil, err
 	}
 
+	// Gate de homologação: se profile tem model_id e o gate está ativo, exige
+	// que (model_id, profile_id) tenha um registro homologated. Profiles
+	// genéricos (model_id NULL) passam — heurística "operator sabe o que faz".
+	if s.homGate != nil && prof.ModelID != nil {
+		ok, err := s.homGate.IsHomologated(ctx, *prof.ModelID, prof.ID)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: check homologação: %w", err)
+		}
+		if !ok {
+			return nil, prov.ErrProfileNotHomologated
+		}
+	}
+
 	filterJSON, err := json.Marshal(req.FilterPayload)
 	if err != nil {
 		return nil, err
@@ -190,6 +221,30 @@ func (s *Service) ApplyBulk(ctx context.Context, req BulkRequest) (*BulkResult, 
 			})
 			continue
 		}
+
+		// Gate per-device: profile com model_id só pode ir para devices do mesmo
+		// modelo. Filtros amplos (ex: "vendor=Huawei") podem trazer modelos
+		// diferentes — evita aplicar SSID path do HG8245 em um HG8546.
+		// Profile genérico (model_id=nil) bypassa este check; assume-se que paths
+		// canônicos (TR-098 vs TR-181) já foram pensados para o caso amplo.
+		if prof.ModelID != nil {
+			if dev.ModelID == nil || *dev.ModelID != *prof.ModelID {
+				errMsg := "device de modelo diferente do profile homologado"
+				payload, _ := json.Marshal(map[string]any{"error": errMsg})
+				_ = s.jobs.Create(ctx, &prov.Job{
+					DeviceID:     dev.ID,
+					ProfileID:    &prof.ID,
+					RequestedBy:  &req.RequestedBy,
+					BatchID:      &batch.ID,
+					Status:       prov.JobFailed,
+					Payload:      payload,
+					ErrorMessage: errMsg,
+					FinishedAt:   ptrTime(time.Now()),
+				})
+				continue
+			}
+		}
+
 		resolved, err := s.engine.RenderProfile(prof.Parameters, tplCtx)
 		if err != nil {
 			payload, _ := json.Marshal(map[string]any{"error": err.Error()})

@@ -1,0 +1,111 @@
+package homologation
+
+import (
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+type ListInput struct {
+	Sessions []hom.Session
+	Labs     []inv.Device
+	CSRF     string
+}
+
+templ List(in ListInput) {
+	@layouts.Base("Homologação") {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold text-sentinel-900">Homologação de modelos</h1>
+					<p class="text-sm text-sentinel-500">Wizard guiado de descoberta + teste de parâmetros TR-069 em devices de laboratório.</p>
+				</div>
+			</div>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Iniciar nova sessão</h2>
+				if len(in.Labs) == 0 {
+					<p class="text-sm text-sentinel-500">
+						Nenhum device está marcado como laboratório.
+						Vá em <a href="/devices" class="text-blue-600 underline">Devices</a>, abra o detalhe de um CPE de teste e clique em "Marcar como lab".
+					</p>
+				} else {
+					<form method="POST" action="/homologation/sessions" class="flex flex-wrap items-end gap-2">
+						<input type="hidden" name="_csrf" value={ in.CSRF }/>
+						<label class="flex-1 min-w-[280px]">
+							<span class="text-xs uppercase tracking-wide text-sentinel-500">Device de laboratório</span>
+							<select name="device_id" required class="input mt-1 w-full">
+								for _, d := range in.Labs {
+									<option value={ d.ID.String() }>{ deviceLabel(d) }</option>
+								}
+							</select>
+						</label>
+						<button type="submit" class="btn-primary">Iniciar</button>
+					</form>
+				}
+			</section>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Sessões recentes</h2>
+				if len(in.Sessions) == 0 {
+					<p class="text-sm text-sentinel-500">Nenhuma sessão registrada ainda.</p>
+				} else {
+					<table class="table">
+						<thead>
+							<tr>
+								<th>Status</th>
+								<th>Device</th>
+								<th>Iniciada em</th>
+								<th>Mappings</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, s := range in.Sessions {
+								<tr>
+									<td>@statusBadge(s.Status)</td>
+									<td class="font-mono text-xs">{ s.LabDeviceID.String() }</td>
+									<td>{ s.StartedAt.Format("02/01/2006 15:04") }</td>
+									<td>
+										if s.GeneratedProfileID != nil {
+											<a class="text-blue-600 underline" href={ templ.URL("/templates/" + s.GeneratedProfileID.String()) }>profile gerado</a>
+										} else {
+											<span class="text-sentinel-500">—</span>
+										}
+									</td>
+									<td>
+										<a class="btn-ghost" href={ templ.URL("/homologation/sessions/" + s.ID.String()) }>Abrir</a>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</section>
+		</div>
+	}
+}
+
+templ statusBadge(status hom.SessionStatus) {
+	switch status {
+		case hom.SessionDraft:
+			<span class="badge-info">rascunho</span>
+		case hom.SessionProbing:
+			<span class="badge-info">sondando</span>
+		case hom.SessionTesting:
+			<span class="badge-warning">testando</span>
+		case hom.SessionCompleted:
+			<span class="badge-success">homologado</span>
+		case hom.SessionAbandoned:
+			<span class="badge-danger">abandonada</span>
+		default:
+			<span class="badge-info">{ string(status) }</span>
+	}
+}
+
+func deviceLabel(d inv.Device) string {
+	if d.SerialNumber != "" {
+		return d.SerialNumber + " (" + d.GenieACSID + ")"
+	}
+	return d.GenieACSID
+}

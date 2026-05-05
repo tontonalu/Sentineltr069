@@ -119,6 +119,17 @@ func (r *fakeDeviceRepo) Delete(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *fakeDeviceRepo) SetHomologationLab(_ context.Context, id uuid.UUID, isLab bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.byID[id]
+	if !ok {
+		return domain.ErrDeviceNotFound
+	}
+	d.IsHomologationLab = isLab
+	return nil
+}
+
 // ──────────── CustomerRepo fake ────────────
 
 type fakeCustomerRepo struct {

@@ -18,6 +18,8 @@ import (
 
 	// blank import força o registro do plugin Voalle (e futuros) no registry global.
 	_ "github.com/celinet/sentinel-acs/internal/infrastructure/erp/voalle"
+	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
@@ -158,6 +160,7 @@ func run() error {
 		batchRepo    *pgdb.BatchRepo
 		tplService   *tplapp.Service
 		provService  *provapp.Service
+		homService   *homapp.Service
 		jobNotifier  *rds.JobNotifier
 	)
 	if pgPool != nil {
@@ -167,6 +170,17 @@ func run() error {
 		jobRepo = pgdb.NewJobRepo(pgPool)
 		batchRepo = pgdb.NewBatchRepo(pgPool)
 		tplService = tplapp.NewService(profileRepo, paramRepo, historyRepo)
+
+		// Homologation service usa todas as deps de templates + GenieACS NBI.
+		// Wizard delega Create do profile final ao tplService — sem duplicação.
+		homSessionRepo := pgdb.NewHomologationSessionRepo(pgPool)
+		homMappingRepo := pgdb.NewHomologationMappingRepo(pgPool)
+		homCanonicalRepo := pgdb.NewCanonicalKeyRepo(pgPool)
+		homModelRepo := pgdb.NewModelHomologationRepo(pgPool)
+		homService = homapp.NewService(
+			homSessionRepo, homMappingRepo, homCanonicalRepo, homModelRepo,
+			deviceRepo, modelRepo, tplService, genieClient,
+		)
 
 		// Notifier é interface — se Redis falta, passa nil interface (não
 		// typed-nil) para o `if notify != nil` no service ficar correto.
@@ -180,7 +194,7 @@ func run() error {
 			tplService,
 			deviceRepo, customerRepo, popRepo,
 			jobRepo, batchRepo, notifier,
-		)
+		).WithHomologationGate(homModelRepo)
 	}
 	if redisClient != nil {
 		preauth = appidentity.NewPreauthStore(redisClient)
@@ -214,7 +228,19 @@ func run() error {
 
 	settingsPOPsH := &handlers.SettingsPOPsHandler{POPs: popRepo}
 	settingsVendorsH := &handlers.SettingsVendorsHandler{Vendors: vendorRepo}
-	settingsModelsH := &handlers.SettingsModelsHandler{Models: modelRepo, Vendors: vendorRepo}
+	// homModelRepoForView é usado em vários handlers — declarado logo antes
+	// do primeiro consumidor (settingsModelsH) e reusado nos demais abaixo.
+	var homModelRepoForView hom.ModelHomologationRepo
+	if pgPool != nil {
+		homModelRepoForView = pgdb.NewModelHomologationRepo(pgPool)
+	}
+
+	settingsModelsH := &handlers.SettingsModelsHandler{
+		Models:    modelRepo,
+		Vendors:   vendorRepo,
+		HomModel:  homModelRepoForView,
+		Templates: tplService,
+	}
 	var settingsProvH *handlers.SettingsProvisioningHandler
 	if provConfigRepo != nil {
 		settingsProvH = &handlers.SettingsProvisioningHandler{Configs: provConfigRepo, Syncer: provSyncer}
@@ -225,18 +251,35 @@ func run() error {
 		settingsTR069ACLH = &handlers.SettingsTR069ACLHandler{ACL: tr069ACLRepo}
 	}
 
+	var settingsCKH *handlers.SettingsCanonicalKeysHandler
+	if pgPool != nil {
+		settingsCKH = &handlers.SettingsCanonicalKeysHandler{Keys: pgdb.NewCanonicalKeyRepo(pgPool)}
+	}
+
 	templatesH := &handlers.TemplatesHandler{
 		Service:  tplService,
 		Profiles: profileRepo,
 		History:  historyRepo,
 		Vendors:  vendorRepo,
 		Models:   modelRepo,
+		HomModel: homModelRepoForView,
 	}
 	provH := &handlers.ProvisioningHandler{
 		Service: provService,
 		Jobs:    jobRepo,
 		Batches: batchRepo,
 		Devices: deviceRepo,
+	}
+
+	var homH *handlers.HomologationHandler
+	if homService != nil {
+		homH = &handlers.HomologationHandler{
+			Service:  homService,
+			Devices:  deviceRepo,
+			Models:   modelRepo,
+			Vendors:  vendorRepo,
+			HomModel: homModelRepoForView,
+		}
 	}
 
 	// Telemetria — repo Postgres (TimescaleDB hypertables).
@@ -384,6 +427,10 @@ func run() error {
 			r.Get("/", settingsModelsH.List)
 			r.Get("/new", settingsModelsH.NewForm)
 			r.Post("/", settingsModelsH.Create)
+			// Página somente-leitura: lista profiles homologados pro modelo.
+			// Permissão homologation.read garante que mesmo viewer veja.
+			r.With(mw.RequirePermission("homologation", "read")).
+				Get("/{id}/homologations", settingsModelsH.Homologations)
 		})
 
 		// Settings · Provisionamento — config TR-069/CWMP (URL ACS, Inform,
@@ -415,6 +462,20 @@ func run() error {
 			})
 		}
 
+		// Settings · Canonical keys — catálogo padronizado para profiles
+		// e auto-mapeamento. Read = template.read, mutações = template.manage.
+		if settingsCKH != nil {
+			r.Route("/settings/canonical-keys", func(r chi.Router) {
+				r.Use(mw.RequirePermission("template", "read"))
+				r.Get("/", settingsCKH.List)
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("template", "manage"))
+					r.Post("/", settingsCKH.Create)
+					r.Post("/{id}/delete", settingsCKH.Delete)
+				})
+			})
+		}
+
 		// Devices — leitura para todos autenticados com device.read.
 		r.Route("/devices", func(r chi.Router) {
 			r.Use(mw.RequirePermission("device", "read"))
@@ -440,6 +501,8 @@ func run() error {
 				Post("/{id}/reboot", devicesH.Reboot)
 			r.With(mw.RequirePermission("device", "delete")).
 				Post("/{id}/delete", devicesH.Delete)
+			r.With(mw.RequirePermission("homologation", "run")).
+				Post("/{id}/mark-lab", devicesH.MarkLab)
 
 			// Aplicar profile a este device — exige provisioning.apply.
 			if provService != nil {
@@ -481,6 +544,31 @@ func run() error {
 				r.Get("/batches/{id}", provH.BatchDetail)
 				r.With(mw.RequirePermission("provisioning", "approve")).
 					Post("/batches/{id}/approve", provH.ApproveBatch)
+			})
+		}
+
+		// Homologação — wizard guiado para gerar profiles testados.
+		if homH != nil {
+			r.Route("/homologation", func(r chi.Router) {
+				r.Use(mw.RequirePermission("homologation", "read"))
+				r.Get("/", homH.List)
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequirePermission("homologation", "run"))
+					r.Post("/sessions", homH.Create)
+					r.Get("/sessions/{id}", homH.Wizard)
+					r.Post("/sessions/{id}/probe", homH.Probe)
+					r.Post("/sessions/{id}/automap", homH.AutoMap)
+					r.Post("/sessions/{id}/mappings", homH.AddMapping)
+					r.Post("/sessions/{id}/mappings/{mid}/delete", homH.RemoveMapping)
+					r.Post("/sessions/{id}/mappings/{mid}/template", homH.UpdateMappingTemplate)
+					r.Post("/sessions/{id}/mappings/{mid}/test-read", homH.TestRead)
+					r.Post("/sessions/{id}/mappings/{mid}/test-write", homH.TestWrite)
+					r.Post("/sessions/{id}/abandon", homH.Abandon)
+					r.With(mw.RequirePermission("homologation", "approve")).
+						Post("/sessions/{id}/complete", homH.Complete)
+					r.With(mw.RequirePermission("homologation", "approve")).
+						Post("/model-homologations/{id}/deprecate", homH.Deprecate)
+				})
 			})
 		}
 

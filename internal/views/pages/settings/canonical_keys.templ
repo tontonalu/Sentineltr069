@@ -1,0 +1,164 @@
+package settings
+
+import (
+	"strings"
+
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+templ CanonicalKeysList(csrf string, keys []hom.CanonicalKey, errMsg string) {
+	@layouts.Base("Configurações · Canonical keys") {
+		@Tabs()
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-semibold text-sentinel-900">Catálogo de canonical_keys</h1>
+				<p class="text-sm text-sentinel-500">
+					Chaves padronizadas usadas pelos profiles e pelo wizard de homologação.
+					Hint paths alimentam o auto-mapeamento — quando bate algum, o wizard sugere o mapping.
+				</p>
+			</div>
+
+			if errMsg != "" {
+				<div class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{ errMsg }</div>
+			}
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Cadastrar nova chave</h2>
+				<form method="POST" action="/settings/canonical-keys" class="grid grid-cols-1 gap-3 md:grid-cols-2">
+					<input type="hidden" name="_csrf" value={ csrf }/>
+					<label class="md:col-span-1">
+						<span class="text-xs uppercase text-sentinel-500">key</span>
+						<input type="text" name="key" required class="input mt-1 w-full font-mono" placeholder="ex: wifi.ssid.2g"/>
+					</label>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">label (pt-BR)</span>
+						<input type="text" name="label_pt" required class="input mt-1 w-full" placeholder="ex: SSID Wi-Fi 2.4GHz"/>
+					</label>
+					<label class="md:col-span-2">
+						<span class="text-xs uppercase text-sentinel-500">descrição</span>
+						<input type="text" name="description" class="input mt-1 w-full"/>
+					</label>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">categoria</span>
+						<select name="category" class="input mt-1 w-full">
+							<option value="wifi">wifi</option>
+							<option value="wan">wan</option>
+							<option value="lan">lan</option>
+							<option value="mgmt">mgmt</option>
+							<option value="device">device</option>
+							<option value="voice">voice</option>
+							<option value="other">other</option>
+						</select>
+					</label>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">data_type</span>
+						<select name="data_type" class="input mt-1 w-full">
+							<option>string</option>
+							<option>int</option>
+							<option>bool</option>
+							<option>unsignedInt</option>
+							<option>dateTime</option>
+						</select>
+					</label>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">hint paths TR-098</span>
+						<textarea name="hint_paths_tr098" rows="3" class="input mt-1 w-full font-mono text-xs" placeholder="um path por linha"></textarea>
+					</label>
+					<label>
+						<span class="text-xs uppercase text-sentinel-500">hint paths TR-181</span>
+						<textarea name="hint_paths_tr181" rows="3" class="input mt-1 w-full font-mono text-xs" placeholder="um path por linha"></textarea>
+					</label>
+					<label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+						<input type="checkbox" name="default_is_secret" value="1"/>
+						<span>secret por padrão (senha, password, key)</span>
+					</label>
+					<div class="md:col-span-2 flex justify-end">
+						<button type="submit" class="btn-primary">Adicionar</button>
+					</div>
+				</form>
+			</section>
+
+			<section class="rounded-lg bg-white p-6 shadow">
+				<h2 class="mb-3 text-lg font-medium text-sentinel-900">Catálogo atual ({ keysLabel(len(keys)) })</h2>
+				if len(keys) == 0 {
+					<p class="text-sm text-sentinel-500">Nenhuma chave cadastrada.</p>
+				} else {
+					<div class="overflow-x-auto">
+						<table class="min-w-full divide-y divide-sentinel-100 text-xs">
+							<thead class="bg-sentinel-50 text-left text-sentinel-500">
+								<tr>
+									<th class="px-2 py-2">key</th>
+									<th class="px-2 py-2">label</th>
+									<th class="px-2 py-2">cat.</th>
+									<th class="px-2 py-2">tipo</th>
+									<th class="px-2 py-2">hints TR-098</th>
+									<th class="px-2 py-2">hints TR-181</th>
+									<th class="px-2 py-2"></th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, k := range keys {
+									<tr class="border-t border-sentinel-100">
+										<td class="px-2 py-1 font-mono">{ k.Key }</td>
+										<td class="px-2 py-1">{ k.LabelPT }</td>
+										<td class="px-2 py-1">{ k.Category }</td>
+										<td class="px-2 py-1">
+											{ string(k.SuggestedDataType) }
+											if k.DefaultIsSecret {
+												<span class="ml-1 text-amber-600">🔒</span>
+											}
+										</td>
+										<td class="px-2 py-1 font-mono text-sentinel-600">{ joinPaths(k.HintPathsTR098) }</td>
+										<td class="px-2 py-1 font-mono text-sentinel-600">{ joinPaths(k.HintPathsTR181) }</td>
+										<td class="px-2 py-1 text-right">
+											<form method="POST" action={ templ.URL("/settings/canonical-keys/" + k.ID.String() + "/delete") } onsubmit="return confirm('Remover esta canonical_key do catálogo? Profiles existentes não são afetados.');">
+												<input type="hidden" name="_csrf" value={ csrf }/>
+												<button type="submit" class="text-red-600 hover:underline">remover</button>
+											</form>
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</section>
+		</div>
+	}
+}
+
+func joinPaths(paths []string) string {
+	if len(paths) == 0 {
+		return "—"
+	}
+	return strings.Join(paths, "  ·  ")
+}
+
+func keysLabel(n int) string {
+	if n == 1 {
+		return "1 chave"
+	}
+	return intStr(n) + " chaves"
+}
+
+func intStr(n int) string {
+	// implementação leve para evitar fmt no templ — mantém tree-shake melhor
+	if n == 0 {
+		return "0"
+	}
+	neg := false
+	if n < 0 {
+		neg = true
+		n = -n
+	}
+	digits := []byte{}
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	if neg {
+		return "-" + string(digits)
+	}
+	return string(digits)
+}

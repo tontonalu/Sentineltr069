@@ -182,6 +182,27 @@ func (h *DevicesHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/devices/"+d.ID.String(), http.StatusSeeOther)
 }
 
+// MarkLab POST /devices/{id}/mark-lab — toggle is_homologation_lab.
+// Form param `lab` = "1" liga, qualquer outro valor (ou ausente) desliga.
+// Apenas devices marcados podem ser usados como lab_device do wizard.
+func (h *DevicesHandler) MarkLab(w http.ResponseWriter, r *http.Request) {
+	d := h.deviceFromURL(w, r)
+	if d == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "form inválido", http.StatusBadRequest)
+		return
+	}
+	isLab := r.PostForm.Get("lab") == "1"
+	if err := h.Devices.SetHomologationLab(r.Context(), d.ID, isLab); err != nil {
+		logger.FromContext(r.Context()).Error("mark lab", "err", err, "device", d.ID)
+		http.Error(w, "falha ao atualizar flag de laboratório", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/devices/"+d.ID.String(), http.StatusSeeOther)
+}
+
 // Delete POST /devices/{id}/delete — remove o device do Postgres e do ACS upstream.
 func (h *DevicesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	d := h.deviceFromURL(w, r)

@@ -18,6 +18,7 @@ type DetailInput struct {
 	CanReboot            bool
 	CanConnectionRequest bool
 	CanDelete            bool
+	CanHomologate        bool
 }
 
 func DetailFromUser(u *identity.User, perms *identity.EffectivePermissions, in DetailInput) DetailInput {
@@ -25,6 +26,7 @@ func DetailFromUser(u *identity.User, perms *identity.EffectivePermissions, in D
 		in.CanReboot = perms.Has("device", "reboot", identity.GlobalScope)
 		in.CanConnectionRequest = perms.Has("device", "connection_req", identity.GlobalScope)
 		in.CanDelete = perms.Has("device", "delete", identity.GlobalScope)
+		in.CanHomologate = perms.Has("homologation", "run", identity.GlobalScope)
 	}
 	_ = u
 	return in
@@ -181,7 +183,7 @@ templ Detail(csrfToken string, in DetailInput) {
 }
 
 templ deviceActions(csrfToken string, in DetailInput) {
-	if in.CanReboot || in.CanConnectionRequest || in.CanDelete {
+	if in.CanReboot || in.CanConnectionRequest || in.CanDelete || in.CanHomologate {
 		<section class="rounded-lg bg-white p-4 shadow">
 			<div class="flex flex-wrap items-center gap-2">
 				if in.CanConnectionRequest {
@@ -200,6 +202,9 @@ templ deviceActions(csrfToken string, in DetailInput) {
 						<button type="submit" class="btn-primary">Reboot</button>
 					</form>
 				}
+				if in.CanHomologate {
+					@labToggle(csrfToken, in.Device)
+				}
 				if in.CanDelete {
 					<form
 						method="POST"
@@ -212,8 +217,32 @@ templ deviceActions(csrfToken string, in DetailInput) {
 					</form>
 				}
 			</div>
+			if in.Device.IsHomologationLab {
+				<p class="mt-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+					⚠ Este device está marcado como <strong>laboratório de homologação</strong>. Pode receber testes destrutivos do wizard — não use para um cliente real.
+				</p>
+			}
 		</section>
 	}
+}
+
+// labToggle alterna is_homologation_lab. Lab=on usa botão âmbar com confirm
+// (sinaliza criticidade); off é botão neutro.
+templ labToggle(csrfToken string, d domain.Device) {
+	<form method="POST" action={ templ.URL("/devices/" + d.ID.String() + "/mark-lab") }>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
+		if d.IsHomologationLab {
+			<input type="hidden" name="lab" value="0"/>
+			<button type="submit" class="btn-ghost">Desmarcar lab</button>
+		} else {
+			<input type="hidden" name="lab" value="1"/>
+			<button
+				type="submit"
+				class="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+				onclick="return confirm('Marcar este device como laboratório? Ele poderá sofrer testes destrutivos no wizard de homologação.');"
+			>Marcar como lab</button>
+		}
+	</form>
 }
 
 func deviceTitle(d domain.Device) string {

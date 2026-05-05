@@ -41,6 +41,7 @@ templ Sidebar(currentPath string) {
 				@NavLink("/", "Início", "home", currentPath == "/")
 				@NavLink("/devices", "Devices", "router", IsPathActive(currentPath, "/devices"))
 				@NavLink("/templates", "Templates", "file-cog", IsPathActive(currentPath, "/templates"))
+				@NavLink("/homologation", "Homologação", "shield", IsPathActive(currentPath, "/homologation"))
 				@NavLink("/alerts", "Alertas", "bell", IsPathActive(currentPath, "/alerts"))
 				@NavLink("/provisioning/jobs", "Provisionamento", "clock", IsPathActive(currentPath, "/provisioning"))
 				@NavLink("/integrations", "Integrações", "plug", IsPathActive(currentPath, "/integrations"))

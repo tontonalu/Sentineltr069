@@ -1,0 +1,97 @@
+package settings
+
+import (
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
+	"github.com/celinet/sentinel-acs/internal/views/layouts"
+)
+
+// ModelHomologationsRow agrupa um registro de homologação com o profile
+// associado, para exibir nome do profile sem N+1 no template.
+type ModelHomologationsRow struct {
+	Record  hom.ModelHomologation
+	Profile *tmpl.Profile
+}
+
+type ModelHomologationsInput struct {
+	Model  domain.DeviceModel
+	Vendor *domain.Vendor
+	Rows   []ModelHomologationsRow
+}
+
+templ ModelHomologationsPage(in ModelHomologationsInput) {
+	@layouts.Base("Homologações · " + in.Model.Model) {
+		@Tabs()
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold text-sentinel-900">
+						Homologações do modelo
+					</h1>
+					<p class="text-sm text-sentinel-500">
+						if in.Vendor != nil {
+							{ in.Vendor.Name }
+						}
+						{ " · " }
+						{ in.Model.Model }
+						<span class="ml-2 rounded bg-sentinel-50 px-1.5 text-xs uppercase">{ in.Model.TRDataModel }</span>
+					</p>
+				</div>
+				<a href="/settings/models" class="btn-ghost">← Voltar</a>
+			</div>
+			<section class="rounded-lg bg-white p-6 shadow">
+				if len(in.Rows) == 0 {
+					<p class="text-sm text-sentinel-500">
+						Nenhum profile homologado para este modelo.
+						Apply-bulk fica bloqueado para profiles vinculados a este modelo até que pelo menos uma sessão de homologação seja concluída.
+						<a class="ml-1 text-blue-600 underline" href="/homologation">Iniciar homologação</a>.
+					</p>
+				} else {
+					<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+						<thead class="text-left text-xs uppercase text-sentinel-500">
+							<tr>
+								<th class="px-2 py-2">Profile</th>
+								<th class="px-2 py-2">Status</th>
+								<th class="px-2 py-2">Homologado em</th>
+								<th class="px-2 py-2">Motivo deprecate</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-sentinel-50">
+							for _, r := range in.Rows {
+								<tr>
+									<td class="px-2 py-2">
+										if r.Profile != nil {
+											<a href={ templ.URL("/templates/" + r.Profile.ID.String()) } class="text-blue-600 hover:underline">
+												{ r.Profile.Name }
+											</a>
+										} else {
+											<span class="text-sentinel-500">profile removido</span>
+										}
+									</td>
+									<td class="px-2 py-2">
+										if r.Record.Status == hom.StatusHomologated {
+											<span class="badge-success">homologated</span>
+										} else {
+											<span class="badge-danger">deprecated</span>
+										}
+									</td>
+									<td class="px-2 py-2 text-xs text-sentinel-500">
+										{ r.Record.HomologatedAt.Format("02/01/2006 15:04") }
+									</td>
+									<td class="px-2 py-2 text-xs text-sentinel-500">
+										if r.Record.DeprecatedReason != "" {
+											{ r.Record.DeprecatedReason }
+										} else {
+											<span>—</span>
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</section>
+		</div>
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	identity "github.com/celinet/sentinel-acs/internal/domain/identity"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/postgres"
@@ -25,6 +27,7 @@ type TemplatesHandler struct {
 	History  *postgres.ProfileHistoryRepo
 	Vendors  domain.VendorRepository
 	Models   domain.DeviceModelRepository
+	HomModel hom.ModelHomologationRepo // opcional — se nil, seção de homologações fica vazia
 }
 
 // List GET /templates
@@ -197,11 +200,46 @@ func (h *TemplatesHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hist, _ := h.History.ListByProfile(r.Context(), id, 20)
+
+	// Carrega homologações deste profile (se módulo wired) + cache de modelos
+	// para evitar N+1.
+	var links []tplpages.HomologationLink
+	if h.HomModel != nil {
+		records, _ := h.HomModel.ListByProfile(r.Context(), id)
+		modelCache := map[uuid.UUID]*domain.DeviceModel{}
+		vendorCache := map[uuid.UUID]*domain.Vendor{}
+		for _, rec := range records {
+			link := tplpages.HomologationLink{Record: rec}
+			if m, ok := modelCache[rec.ModelID]; ok {
+				link.Model = m
+			} else if mm, err := h.Models.GetByID(r.Context(), rec.ModelID); err == nil {
+				modelCache[rec.ModelID] = mm
+				link.Model = mm
+			}
+			if link.Model != nil {
+				if v, ok := vendorCache[link.Model.VendorID]; ok {
+					link.Vendor = v
+				} else if vv, err := h.Vendors.GetByID(r.Context(), link.Model.VendorID); err == nil {
+					vendorCache[link.Model.VendorID] = vv
+					link.Vendor = vv
+				}
+			}
+			links = append(links, link)
+		}
+	}
+
+	canDeprecate := false
+	if perms, _ := mw.PermissionsFromContext(r.Context()); perms != nil {
+		canDeprecate = perms.Has("homologation", "approve", identity.GlobalScope)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tplpages.Detail(tplpages.DetailInput{
-		Profile: *p,
-		History: hist,
-		CSRF:    mw.CSRFTokenFromContext(r.Context()),
+		Profile:       *p,
+		History:       hist,
+		Homologations: links,
+		CanDeprecate:  canDeprecate,
+		CSRF:          mw.CSRFTokenFromContext(r.Context()),
 	}).Render(r.Context(), w)
 }
 

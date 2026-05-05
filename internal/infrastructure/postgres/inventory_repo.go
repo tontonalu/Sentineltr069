@@ -399,7 +399,8 @@ func (r *DeviceRepo) GetByGenieACSID(ctx context.Context, genieacsID string) (*i
 const deviceColumns = `
 	id, genieacs_id, COALESCE(serial_number,''), COALESCE(mac,''), COALESCE(oui,''),
 	model_id, customer_id, pop_id, status, COALESCE(firmware_version,''),
-	host(ip_wan), last_inform_at, last_boot_at, tags, created_at, updated_at`
+	host(ip_wan), last_inform_at, last_boot_at, tags, is_homologation_lab,
+	created_at, updated_at`
 
 func (r *DeviceRepo) scanOne(ctx context.Context, where string, args ...any) (*inventory.Device, error) {
 	q := `SELECT ` + deviceColumns + ` FROM devices ` + where
@@ -408,7 +409,8 @@ func (r *DeviceRepo) scanOne(ctx context.Context, where string, args ...any) (*i
 	err := r.pool.QueryRow(ctx, q, args...).Scan(
 		&d.ID, &d.GenieACSID, &d.SerialNumber, &d.MAC, &d.OUI,
 		&d.ModelID, &d.CustomerID, &d.POPID, &d.Status, &d.FirmwareVersion,
-		&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.CreatedAt, &d.UpdatedAt,
+		&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
+		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, inventory.ErrDeviceNotFound
@@ -484,7 +486,8 @@ func (r *DeviceRepo) List(ctx context.Context, f inventory.DeviceFilter, p inven
 		if err := rows.Scan(
 			&d.ID, &d.GenieACSID, &d.SerialNumber, &d.MAC, &d.OUI,
 			&d.ModelID, &d.CustomerID, &d.POPID, &d.Status, &d.FirmwareVersion,
-			&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.CreatedAt, &d.UpdatedAt, &total,
+			&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
+			&d.CreatedAt, &d.UpdatedAt, &total,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -506,6 +509,21 @@ func (r *DeviceRepo) LinkCustomer(ctx context.Context, deviceID uuid.UUID, custo
 // remover do GenieACS (via Client.DeleteDevice) — ver inventory.SyncService.
 func (r *DeviceRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM devices WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return inventory.ErrDeviceNotFound
+	}
+	return nil
+}
+
+// SetHomologationLab marca/desmarca o device como laboratório de homologação.
+// Sync com GenieACS não toca nessa coluna — flag é local, definida via UI.
+func (r *DeviceRepo) SetHomologationLab(ctx context.Context, id uuid.UUID, isLab bool) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE devices SET is_homologation_lab = $2 WHERE id = $1`,
+		id, isLab)
 	if err != nil {
 		return err
 	}

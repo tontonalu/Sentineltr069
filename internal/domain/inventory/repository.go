@@ -76,4 +76,9 @@ type DeviceRepository interface {
 
 	// Delete remove o device do Postgres. Retorna ErrDeviceNotFound se não existir.
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// SetHomologationLab marca/desmarca o device como laboratório de homologação.
+	// Apenas devices marcados podem ser usados como lab_device em uma sessão de
+	// homologação — isso é a barreira anti-acidente para o write test do wizard.
+	SetHomologationLab(ctx context.Context, id uuid.UUID, isLab bool) error
 }

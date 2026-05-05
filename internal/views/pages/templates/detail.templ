@@ -3,14 +3,26 @@ package templates
 import (
 	"strconv"
 
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/views/layouts"
 )
 
+// HomologationLink — agrega cada registro de homologação com nome legível
+// do modelo, evitando refetch dentro do templ.
+type HomologationLink struct {
+	Record hom.ModelHomologation
+	Model  *inv.DeviceModel
+	Vendor *inv.Vendor
+}
+
 type DetailInput struct {
-	Profile tmpl.Profile
-	History []tmpl.HistoryEntry
-	CSRF    string
+	Profile        tmpl.Profile
+	History        []tmpl.HistoryEntry
+	Homologations  []HomologationLink
+	CanDeprecate   bool
+	CSRF           string
 }
 
 templ Detail(in DetailInput) {
@@ -65,6 +77,7 @@ templ Detail(in DetailInput) {
 					</tbody>
 				</table>
 			</section>
+			@homologationsSection(in)
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Histórico</h2>
 				if len(in.History) == 0 {
@@ -87,4 +100,67 @@ templ Detail(in DetailInput) {
 			</section>
 		</div>
 	}
+}
+
+templ homologationsSection(in DetailInput) {
+	<section class="rounded-lg bg-white p-6 shadow">
+		<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Homologações</h2>
+		if len(in.Homologations) == 0 {
+			<p class="text-sm text-sentinel-500">
+				Profile ainda não foi homologado para nenhum modelo.
+				Sem homologação, <strong>apply-bulk fica bloqueado</strong> para profiles com modelo definido.
+				<a class="text-blue-600 underline" href="/homologation">Iniciar sessão de homologação</a>.
+			</p>
+		} else {
+			<table class="min-w-full divide-y divide-sentinel-100 text-sm">
+				<thead class="text-left text-xs uppercase tracking-wider text-sentinel-500">
+					<tr>
+						<th class="px-2 py-2">modelo</th>
+						<th class="px-2 py-2">status</th>
+						<th class="px-2 py-2">homologado em</th>
+						<th class="px-2 py-2"></th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-sentinel-50">
+					for _, hl := range in.Homologations {
+						<tr>
+							<td class="px-2 py-2">{ modelLabel(hl) }</td>
+							<td class="px-2 py-2">@homStatusBadge(hl.Record.Status)</td>
+							<td class="px-2 py-2 text-xs text-sentinel-500">{ hl.Record.HomologatedAt.Format("02/01/2006 15:04") }</td>
+							<td class="px-2 py-2 text-right">
+								if in.CanDeprecate && hl.Record.Status == hom.StatusHomologated {
+									<form method="POST" action={ templ.URL("/homologation/model-homologations/" + hl.Record.ID.String() + "/deprecate") } onsubmit="return confirm('Marcar esta homologação como deprecated? Apply-bulk volta a ser bloqueado para este modelo.');" class="inline">
+										<input type="hidden" name="_csrf" value={ in.CSRF }/>
+										<input type="text" name="reason" placeholder="motivo (opcional)" class="input text-xs py-1 mr-1"/>
+										<button type="submit" class="text-red-600 hover:underline text-xs">deprecate</button>
+									</form>
+								}
+								if hl.Record.Status == hom.StatusDeprecated && hl.Record.DeprecatedReason != "" {
+									<span class="text-xs text-sentinel-500" title="motivo do deprecate">{ hl.Record.DeprecatedReason }</span>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	</section>
+}
+
+templ homStatusBadge(s hom.HomologationStatus) {
+	if s == hom.StatusHomologated {
+		<span class="badge-success">homologated</span>
+	} else {
+		<span class="badge-danger">deprecated</span>
+	}
+}
+
+func modelLabel(hl HomologationLink) string {
+	if hl.Model == nil {
+		return "—"
+	}
+	if hl.Vendor != nil {
+		return hl.Vendor.Name + " " + hl.Model.Model
+	}
+	return hl.Model.Model
 }
