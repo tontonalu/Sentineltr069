@@ -46,6 +46,7 @@ templ Base(title string) {
 						{ children... }
 					</div>
 				</main>
+				@components.Footer()
 			</div>
 			<div id="toast-region" class="fixed top-4 right-4 z-50 space-y-2"></div>
 		</body>
@@ -64,8 +65,11 @@ templ Bare(title string) {
 			<link rel="stylesheet" href={ AssetURL("css/app.css") }/>
 			<script src={ AssetURL("js/htmx.min.js") } defer></script>
 		</head>
-		<body class="min-h-screen flex items-center justify-center bg-sentinel-50">
-			{ children... }
+		<body class="min-h-screen flex flex-col bg-sentinel-50">
+			<div class="flex flex-1 items-center justify-center">
+				{ children... }
+			</div>
+			@components.Footer()
 		</body>
 	</html>
 }
