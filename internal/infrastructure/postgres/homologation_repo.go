@@ -201,6 +201,29 @@ func (r *HomologationSessionRepo) PurgeOldSnapshots(ctx context.Context, before 
 	return int(tag.RowsAffected()), nil
 }
 
+// ResetStuckProbing recupera sessões presas em `probing` no boot do servidor.
+// Cenário típico: server foi reiniciado durante um Probe, a goroutine morre,
+// status fica órfão no banco. Sem essa recovery, a sessão fica indefinidamente
+// em probing e o índice único parcial bloqueia novas tentativas no mesmo device.
+//
+// Heurística do destino: se há snapshot persistido a sessão volta para
+// `testing` (operador pode continuar com a árvore disponível); senão, `draft`
+// (operador clica "Sondar" pra começar de novo).
+func (r *HomologationSessionRepo) ResetStuckProbing(ctx context.Context) (int, error) {
+	const q = `
+		UPDATE homologation_sessions
+		   SET status = CASE
+		       WHEN tree_snapshot IS NOT NULL THEN 'testing'
+		       ELSE 'draft'
+		   END
+		 WHERE status = 'probing'`
+	tag, err := r.pool.Exec(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (r *HomologationSessionRepo) ActiveByDevice(ctx context.Context, deviceID uuid.UUID) (*hom.Session, error) {
 	const q = `
 		SELECT id, lab_device_id, model_id, status, created_by, NULL::jsonb,

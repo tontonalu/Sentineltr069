@@ -25,6 +25,13 @@ type SessionRepo interface {
 	// finalizadas antes de `before`, mantendo metadados e mappings (auditoria).
 	// Retorna o número de linhas afetadas.
 	PurgeOldSnapshots(ctx context.Context, before time.Time) (int, error)
+
+	// ResetStuckProbing transiciona sessões presas em `probing` para um
+	// estado utilizável (testing se já têm snapshot, draft se não). Usado
+	// no startup do servidor para recuperar de crashes/restarts no meio
+	// de um Probe — sem isso a sessão fica órfã no banco indefinidamente.
+	// Retorna o número de linhas atualizadas.
+	ResetStuckProbing(ctx context.Context) (int, error)
 }
 
 // SessionFilter — filtros suportados pela listagem.

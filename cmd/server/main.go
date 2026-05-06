@@ -182,6 +182,17 @@ func run() error {
 			deviceRepo, modelRepo, tplService, genieClient,
 		)
 
+		// Recovery de boot: sessões presas em `probing` (server caiu durante
+		// um Probe, goroutine perdeu o defer de rollback) são liberadas
+		// automaticamente. Usa bootCtx (mesmo que migrações + Redis ping no
+		// startup) para herdar o timeout de 30s. Falha aqui não trava o
+		// server — só loga.
+		if n, err := homSessionRepo.ResetStuckProbing(bootCtx); err != nil {
+			slog.Warn("homologation: failed to reset stuck probing sessions", "err", err)
+		} else if n > 0 {
+			slog.Info("homologation: recovered stuck probing sessions", "count", n)
+		}
+
 		// Notifier é interface — se Redis falta, passa nil interface (não
 		// typed-nil) para o `if notify != nil` no service ficar correto.
 		var notifier provapp.Notifier

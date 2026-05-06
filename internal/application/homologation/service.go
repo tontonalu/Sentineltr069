@@ -271,28 +271,38 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 
 	log := logger.FromContext(ctx)
 
-	// Pass 1 — refresh largo: emite refreshObject para os ramos top-level
-	// dos dois data models. Em CPEs cooperativos traz a árvore inteira em
-	// 5-15s. Em ONTs minimalistas (Vsol, FiberHome) muitas tasks faultam,
-	// daí a necessidade da Pass 2 abaixo.
+	// Pass 1 — refresh largo: emite refreshObject para os ramos top-level.
+	// Em CPEs cooperativos traz a árvore inteira em 5-15s.
 	refreshIDs := s.issueWideRefresh(ctx, d.GenieACSID)
 	log.Info("homologation probe: refresh tasks issued",
 		"device", d.GenieACSID, "count", len(refreshIDs))
 	s.waitForTasks(ctx, refreshIDs, probeWaitTimeoutPass1)
 
-	// Pass 2 — targeted fetch: getParameterValues por hint path do catálogo,
-	// 1 task por path (Fault 9005 isolado por task). Demora minutos pra
-	// ~80 paths, mas como o Probe roda em goroutine via handler, o operador
-	// não fica bloqueado. Resultado: árvore completa (800+ entradas em ONT
-	// típico Vsol) com todas as canonical_keys pré-mapeáveis.
+	// Salva snapshot intermediário e marca status=testing JÁ — operador vê
+	// resultado de Pass 1 imediatamente. Antes salvávamos só no fim, então
+	// se Pass 2 estourasse timeout o usuário não via NADA mesmo tendo Pass 1
+	// completado. Pass 2 é melhoria opcional a partir daqui.
+	if err := s.saveSnapshotAndDetectModel(ctx, sessionID, d.GenieACSID, sess.ModelID); err != nil {
+		return nil, err
+	}
+	if err := s.sessions.UpdateStatus(ctx, sessionID, hom.SessionTesting); err != nil {
+		return nil, err
+	}
+	// A partir daqui o estado já é utilizável — se o resto falhar, nada
+	// pior que árvore parcial. Setamos probeOK=true cedo pra desativar o
+	// rollback do defer (queremos preservar o snapshot e o status testing).
+	probeOK = true
+
+	// Pass 2 — targeted fetch (best-effort): getParameterValues por hint path,
+	// 1 task por path (Fault 9005 isolado por task). Em ONTs minimalistas
+	// resgata canonical_keys que refreshObject não trouxe. Falha silenciosa:
+	// se ctx expirar ou NBI travar, mantemos a árvore de Pass 1.
 	fetchIDs := s.issueTargetedFetches(ctx, d.GenieACSID)
 	log.Info("homologation probe: targeted fetch tasks issued",
 		"device", d.GenieACSID, "count", len(fetchIDs))
 	s.waitForTasks(ctx, fetchIDs, probeWaitTimeoutPass2)
 
-	// Faults do NBI ajudam a diagnosticar árvore rasa: cada fault é uma
-	// RPC que o CPE rejeitou (path inexistente, timeout). Logamos pra
-	// debug — também aparecem no painel de diagnóstico do wizard.
+	// Faults do NBI — log + painel de diagnóstico no wizard.
 	if faults, err := s.genieacs.GetFaults(ctx, d.GenieACSID); err == nil && len(faults) > 0 {
 		log.Warn("homologation probe: device has GenieACS faults",
 			"device", d.GenieACSID, "fault_count", len(faults))
@@ -302,38 +312,36 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 		}
 	}
 
-	// Lê snapshot atual.
-	dev, err := s.genieacs.GetDevice(ctx, d.GenieACSID)
-	if err != nil {
-		return nil, fmt.Errorf("homologation: GetDevice: %w", err)
+	// Atualiza snapshot com o que veio do Pass 2 (best-effort). Erros aqui
+	// são apenas logados — o snapshot intermediário já está salvo.
+	if err := s.saveSnapshotAndDetectModel(ctx, sessionID, d.GenieACSID, sess.ModelID); err != nil {
+		log.Warn("homologation probe: pass 2 snapshot save failed (mantendo Pass 1)", "err", err)
 	}
 
-	// Auto-correção do data model: detecta a partir das chaves de topo da
-	// árvore (InternetGatewayDevice → TR-098 / Device → TR-181) e ajusta o
-	// cadastro do model se estiver divergente. Sem isso, hints e templates
-	// futuros olham a coluna errada e a sugestão automática nada encontra.
+	return s.GetSession(ctx, sessionID)
+}
+
+// saveSnapshotAndDetectModel busca o estado atual no NBI, sanitiza secrets,
+// salva como snapshot da sessão E auto-detecta o data model TR (TR-098 vs
+// TR-181) atualizando o cadastro do modelo se estiver divergente. Extraído
+// pra ser chamado duas vezes no Probe — uma após Pass 1 (snapshot inicial),
+// outra após Pass 2 (snapshot enriquecido).
+func (s *Service) saveSnapshotAndDetectModel(ctx context.Context, sessionID uuid.UUID, deviceID string, modelID uuid.UUID) error {
+	dev, err := s.genieacs.GetDevice(ctx, deviceID)
+	if err != nil {
+		return fmt.Errorf("homologation: GetDevice: %w", err)
+	}
 	if detected := detectTRDataModel(dev.Raw); detected != "" {
-		if model, err := s.models.GetByID(ctx, sess.ModelID); err == nil && model.TRDataModel != detected {
+		if model, err := s.models.GetByID(ctx, modelID); err == nil && model.TRDataModel != detected {
 			_ = s.models.SetTRDataModel(ctx, model.ID, detected)
 		}
 	}
-
-	// Sanitiza secrets (senhas Wi-Fi/PPPoE/SIP) antes de persistir.
-	// In-place: dev.Raw é descartado depois desta função.
 	genieacs.SanitizeTree(dev.Raw)
-
 	snap, err := json.Marshal(dev.Raw)
 	if err != nil {
-		return nil, fmt.Errorf("homologation: marshal snapshot: %w", err)
+		return fmt.Errorf("homologation: marshal snapshot: %w", err)
 	}
-	if err := s.sessions.UpdateTreeSnapshot(ctx, sessionID, snap); err != nil {
-		return nil, err
-	}
-	if err := s.sessions.UpdateStatus(ctx, sessionID, hom.SessionTesting); err != nil {
-		return nil, err
-	}
-	probeOK = true
-	return s.GetSession(ctx, sessionID)
+	return s.sessions.UpdateTreeSnapshot(ctx, sessionID, snap)
 }
 
 // issueTargetedFetches percorre o catálogo de canonical_keys, deduplicando

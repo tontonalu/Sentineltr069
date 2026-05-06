@@ -116,6 +116,23 @@ func (r *fakeSessionRepo) SetGeneratedProfile(_ context.Context, id, pid uuid.UU
 	return nil
 }
 
+func (r *fakeSessionRepo) ResetStuckProbing(_ context.Context) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, s := range r.store {
+		if s.Status == hom.SessionProbing {
+			if len(s.TreeSnapshot) > 0 {
+				s.Status = hom.SessionTesting
+			} else {
+				s.Status = hom.SessionDraft
+			}
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (r *fakeSessionRepo) PurgeOldSnapshots(_ context.Context, before time.Time) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
