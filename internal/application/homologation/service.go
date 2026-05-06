@@ -707,14 +707,15 @@ func (s *Service) Complete(ctx context.Context, in CompleteInput) (*tmpl.Profile
 	vendorID := model.VendorID
 
 	prof, err := s.tpl.Create(ctx, tplapp.CreateInput{
-		Name:        in.ProfileName,
-		Description: in.Description,
-		VendorID:    &vendorID,
-		ModelID:     &sess.ModelID,
-		IsActive:    true,
-		CreatedBy:   in.UserID,
-		Parameters:  params,
-		ChangeNote:  in.ChangeNote,
+		Name:          in.ProfileName,
+		Description:   in.Description,
+		VendorID:      &vendorID,
+		ModelID:       &sess.ModelID,
+		IsActive:      true,
+		IsHomologated: true,
+		CreatedBy:     in.UserID,
+		Parameters:    params,
+		ChangeNote:    in.ChangeNote,
 	})
 	if err != nil {
 		return nil, err

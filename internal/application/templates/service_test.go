@@ -61,6 +61,16 @@ func (r *fakeProfileRepo) SetActive(_ context.Context, id uuid.UUID, active bool
 	return nil
 }
 
+func (r *fakeProfileRepo) ListByModel(_ context.Context, modelID uuid.UUID) ([]tmpl.Profile, error) {
+	var out []tmpl.Profile
+	for _, p := range r.store {
+		if p.ModelID != nil && *p.ModelID == modelID {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
 type fakeParamRepo struct {
 	store map[uuid.UUID][]tmpl.Parameter
 }

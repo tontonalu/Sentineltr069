@@ -126,6 +126,13 @@ func (h *TemplatesHandler) EditForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Profile homologado é imutável — manda direto pro detail (que já tem
+	// o aviso visual). Sem isso, o operador veria um form que ia falhar
+	// silenciosamente ao salvar com ErrProfileImmutable.
+	if p.IsHomologated {
+		http.Redirect(w, r, "/templates/"+p.ID.String(), http.StatusSeeOther)
+		return
+	}
 	vendors, _ := h.Vendors.List(r.Context())
 	in := tplpages.FormInput{
 		CSRF:        mw.CSRFTokenFromContext(r.Context()),

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,10 @@ type ProfileRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*tmpl.Profile, error)
 	IncrementVersion(ctx context.Context, id uuid.UUID) (int, error)
 	SetActive(ctx context.Context, id uuid.UUID, active bool) error
+	// ListByModel devolve profiles existentes para um model_id específico.
+	// Usado pelo SuggestProfileName na UI de homologação para detectar a
+	// próxima versão livre e popular o datalist de autocomplete.
+	ListByModel(ctx context.Context, modelID uuid.UUID) ([]tmpl.Profile, error)
 }
 
 type ParameterRepo interface {
@@ -47,15 +53,20 @@ func NewService(p ProfileRepo, pr ParameterRepo, h HistoryRepo) *Service {
 }
 
 // CreateInput — payload da UI ao criar profile.
+//
+// IsHomologated, quando true, marca o profile como imutável já no Create —
+// caso de uso: o homologation.Service.Complete usa este flag para garantir
+// que a versão gerada do wizard nunca é editada depois.
 type CreateInput struct {
-	Name        string
-	Description string
-	VendorID    *uuid.UUID
-	ModelID     *uuid.UUID
-	IsActive    bool
-	CreatedBy   *uuid.UUID
-	Parameters  []tmpl.Parameter
-	ChangeNote  string
+	Name           string
+	Description    string
+	VendorID       *uuid.UUID
+	ModelID        *uuid.UUID
+	IsActive       bool
+	IsHomologated  bool
+	CreatedBy      *uuid.UUID
+	Parameters     []tmpl.Parameter
+	ChangeNote     string
 }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (*tmpl.Profile, error) {
@@ -66,13 +77,14 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*tmpl.Profile, er
 		return nil, err
 	}
 	p := &tmpl.Profile{
-		Name:        strings.TrimSpace(in.Name),
-		Description: in.Description,
-		VendorID:    in.VendorID,
-		ModelID:     in.ModelID,
-		Version:     1,
-		IsActive:    in.IsActive,
-		CreatedBy:   in.CreatedBy,
+		Name:          strings.TrimSpace(in.Name),
+		Description:   in.Description,
+		VendorID:      in.VendorID,
+		ModelID:       in.ModelID,
+		Version:       1,
+		IsActive:      in.IsActive,
+		IsHomologated: in.IsHomologated,
+		CreatedBy:     in.CreatedBy,
 	}
 	if err := s.profiles.Create(ctx, p); err != nil {
 		return nil, err
@@ -131,6 +143,21 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (*tmpl.Profile, er
 		return cur, nil
 	}
 
+	// Profiles homologados são imutáveis — só is_active pode mudar (admin
+	// aposenta uma versão sem mexer no conteúdo). Qualquer outra mudança
+	// exige nova sessão de homologação que gera profile novo (_v2).
+	if cur.IsHomologated {
+		onlyIsActiveChange := !paramsChanged &&
+			cur.Name == in.Name &&
+			cur.Description == in.Description &&
+			ptrUUIDEqual(cur.VendorID, in.VendorID) &&
+			ptrUUIDEqual(cur.ModelID, in.ModelID) &&
+			cur.IsActive != in.IsActive
+		if !onlyIsActiveChange {
+			return nil, tmpl.ErrProfileImmutable
+		}
+	}
+
 	cur.Name = strings.TrimSpace(in.Name)
 	cur.Description = in.Description
 	cur.VendorID = in.VendorID
@@ -155,6 +182,85 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (*tmpl.Profile, er
 		return nil, err
 	}
 	return cur, nil
+}
+
+// ProfileNameSuggestion — saída do SuggestProfileName para a UI.
+type ProfileNameSuggestion struct {
+	// Suggested é o nome pré-preenchido no input (próxima versão livre).
+	Suggested string
+	// Existing são os nomes já usados para o mesmo modelo, para alimentar o
+	// <datalist> de autocomplete. Inclui homologados e não-homologados.
+	Existing []string
+}
+
+// profileVersionPattern bate o padrão "<algo>_v<num>" no fim do nome — usado
+// pra detectar versões existentes e calcular a próxima. O grupo \d+ pega o
+// número; tudo antes (incluindo o "_v") é o "stem" do nome.
+var profileVersionPattern = regexp.MustCompile(`^(.*)_v(\d+)$`)
+
+// SuggestProfileName olha os profiles já cadastrados para um modelo e devolve:
+//   - um nome sugerido com a próxima versão livre (ex.: "Vsol_V2804AX_homologated_v3"),
+//   - a lista dos nomes existentes (alimenta datalist de autocomplete).
+//
+// Algoritmo:
+//  1. monta o "stem" base "{vendor}_{model}_homologated".
+//  2. lista profiles do modelo; extrai sufixos "_vN" via regex.
+//  3. próxima versão = max(N) + 1 (ou 1 se nada existir).
+//
+// Se modelID for nil, devolve sugestão genérica sem consultar DB.
+func (s *Service) SuggestProfileName(ctx context.Context, vendor, model string, modelID *uuid.UUID) (*ProfileNameSuggestion, error) {
+	stem := buildProfileStem(vendor, model)
+	if modelID == nil {
+		return &ProfileNameSuggestion{Suggested: stem + "_v1"}, nil
+	}
+	profiles, err := s.profiles.ListByModel(ctx, *modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	maxVersion := 0
+	existing := make([]string, 0, len(profiles))
+	stemPrefix := stem + "_v"
+	for _, p := range profiles {
+		existing = append(existing, p.Name)
+		// Só considera o sufixo se o nome começar com o stem deste vendor/model.
+		// Profiles de outros nomes (manuais) não influenciam a versão.
+		if !strings.HasPrefix(p.Name, stemPrefix) {
+			continue
+		}
+		m := profileVersionPattern.FindStringSubmatch(p.Name)
+		if len(m) < 3 {
+			continue
+		}
+		n, err := strconv.Atoi(m[2])
+		if err != nil || n <= 0 {
+			continue
+		}
+		if n > maxVersion {
+			maxVersion = n
+		}
+	}
+	return &ProfileNameSuggestion{
+		Suggested: fmt.Sprintf("%s_v%d", stem, maxVersion+1),
+		Existing:  existing,
+	}, nil
+}
+
+// buildProfileStem normaliza o prefixo "vendor_model_homologated" — espaços
+// viram underscore, evitando nomes inválidos.
+func buildProfileStem(vendor, model string) string {
+	v := strings.ReplaceAll(strings.TrimSpace(vendor), " ", "_")
+	m := strings.ReplaceAll(strings.TrimSpace(model), " ", "_")
+	if v == "" && m == "" {
+		return "homologated_profile"
+	}
+	if v == "" {
+		return m + "_homologated"
+	}
+	if m == "" {
+		return v + "_homologated"
+	}
+	return v + "_" + m + "_homologated"
 }
 
 // LoadFull lê profile + parameters em uma chamada — usada por list/detail.

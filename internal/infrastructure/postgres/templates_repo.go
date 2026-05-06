@@ -27,8 +27,8 @@ func NewProfileRepo(pool Pool) *ProfileRepo { return &ProfileRepo{pool: pool} }
 func (r *ProfileRepo) Create(ctx context.Context, p *tmpl.Profile) error {
 	const q = `
 		INSERT INTO config_profiles
-		    (id, name, description, vendor_id, model_id, version, is_active, created_by)
-		VALUES (COALESCE($1, gen_random_uuid()), $2, NULLIF($3,''), $4, $5, $6, $7, $8)
+		    (id, name, description, vendor_id, model_id, version, is_active, is_homologated, created_by)
+		VALUES (COALESCE($1, gen_random_uuid()), $2, NULLIF($3,''), $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at`
 	var idArg any
 	if p.ID != uuid.Nil {
@@ -39,7 +39,7 @@ func (r *ProfileRepo) Create(ctx context.Context, p *tmpl.Profile) error {
 	}
 	err := r.pool.QueryRow(ctx, q,
 		idArg, p.Name, p.Description, p.VendorID, p.ModelID,
-		p.Version, p.IsActive, p.CreatedBy,
+		p.Version, p.IsActive, p.IsHomologated, p.CreatedBy,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil && isUniqueViolation(err, "") {
 		return tmpl.ErrProfileDuplicate
@@ -75,12 +75,12 @@ func (r *ProfileRepo) Update(ctx context.Context, p *tmpl.Profile) error {
 func (r *ProfileRepo) GetByID(ctx context.Context, id uuid.UUID) (*tmpl.Profile, error) {
 	const q = `
 		SELECT id, name, COALESCE(description,''), vendor_id, model_id,
-		       version, is_active, created_by, created_at, updated_at
+		       version, is_active, is_homologated, created_by, created_at, updated_at
 		  FROM config_profiles WHERE id = $1`
 	var p tmpl.Profile
 	err := r.pool.QueryRow(ctx, q, id).Scan(
 		&p.ID, &p.Name, &p.Description, &p.VendorID, &p.ModelID,
-		&p.Version, &p.IsActive, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
+		&p.Version, &p.IsActive, &p.IsHomologated, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, tmpl.ErrProfileNotFound
@@ -100,7 +100,7 @@ type ProfileListFilter struct {
 func (r *ProfileRepo) List(ctx context.Context, f ProfileListFilter) ([]tmpl.Profile, error) {
 	q := `
 		SELECT id, name, COALESCE(description,''), vendor_id, model_id,
-		       version, is_active, created_by, created_at, updated_at
+		       version, is_active, is_homologated, created_by, created_at, updated_at
 		  FROM config_profiles WHERE 1=1`
 	args := []any{}
 	if f.VendorID != nil {
@@ -129,12 +129,19 @@ func (r *ProfileRepo) List(ctx context.Context, f ProfileListFilter) ([]tmpl.Pro
 	for rows.Next() {
 		var p tmpl.Profile
 		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.VendorID, &p.ModelID,
-			&p.Version, &p.IsActive, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.Version, &p.IsActive, &p.IsHomologated, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// ListByModel filtra profiles por model_id. Wrapper sobre List com filtro
+// fixo — interface do service de templates expõe esta forma simples para
+// não vazar o ProfileListFilter (que tem outras dimensões).
+func (r *ProfileRepo) ListByModel(ctx context.Context, modelID uuid.UUID) ([]tmpl.Profile, error) {
+	return r.List(ctx, ProfileListFilter{ModelID: &modelID})
 }
 
 func (r *ProfileRepo) SetActive(ctx context.Context, id uuid.UUID, active bool) error {

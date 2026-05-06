@@ -55,7 +55,11 @@ templ List(in ListInput) {
 										}
 									</td>
 									<td class="text-right">
-										<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
+										if p.IsHomologated {
+											<span class="text-xs text-emerald-700" title="Profile homologado — imutável">🔒 homologado</span>
+										} else {
+											<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
+										}
 									</td>
 								</tr>
 							}

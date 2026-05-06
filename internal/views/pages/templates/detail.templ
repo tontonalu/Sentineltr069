@@ -37,9 +37,23 @@ templ Detail(in DetailInput) {
 				</div>
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-sm text-sentinel-500">v{ strconv.Itoa(in.Profile.Version) }</span>
-					<a href={ templ.URL("/templates/" + in.Profile.ID.String() + "/edit") } class="btn-secondary">Editar</a>
+					if in.Profile.IsHomologated {
+						<span class="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800" title="Profile gerado pelo wizard de homologação — conteúdo imutável.">
+							🔒 homologado
+						</span>
+					} else {
+						<a href={ templ.URL("/templates/" + in.Profile.ID.String() + "/edit") } class="btn-secondary">Editar</a>
+					}
 				</div>
 			</div>
+			if in.Profile.IsHomologated {
+				<div class="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+					Este profile foi gerado pelo wizard de homologação e é <strong>imutável</strong>.
+					Para evoluir, abra uma nova sessão de homologação para o mesmo modelo —
+					o sistema sugere automaticamente a próxima versão (<code>_v{ strconv.Itoa(in.Profile.Version + 1) }</code>).
+					Apenas <em>is_active</em> pode ser alterado (aposentar a versão sem mudar conteúdo).
+				</div>
+			}
 			<section class="rounded-lg bg-white p-6 shadow">
 				<h2 class="mb-3 text-lg font-semibold text-sentinel-900">Parâmetros</h2>
 				<table class="min-w-full divide-y divide-sentinel-100 text-sm">

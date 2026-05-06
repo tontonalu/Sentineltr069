@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
+	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
@@ -30,7 +31,11 @@ type WizardInput struct {
 	// no painel de diagnóstico para o operador entender por que a árvore
 	// veio rasa (CPE rejeitando GetParameterNames, etc).
 	Stats *homapp.SnapshotStats
-	CSRF  string
+	// ProfileSuggestion alimenta o input do nome do profile no finalize:
+	// .Suggested vai como value default (próxima versão), .Existing
+	// alimenta um <datalist> de autocomplete com os nomes já usados.
+	ProfileSuggestion *tplapp.ProfileNameSuggestion
+	CSRF              string
 }
 
 templ Wizard(in WizardInput) {
@@ -434,7 +439,29 @@ templ finalizePanel(in WizardInput) {
 			<input type="hidden" name="_csrf" value={ in.CSRF }/>
 			<label>
 				<span class="text-xs uppercase text-sentinel-500">Nome do profile</span>
-				<input type="text" name="profile_name" required class="input mt-1 w-full" placeholder={ defaultProfileName(in) }/>
+				<input
+					type="text"
+					name="profile_name"
+					required
+					class="input mt-1 w-full"
+					value={ profileNameSuggested(in) }
+					list="profile-name-suggestions"
+					autocomplete="off"
+				/>
+				if in.ProfileSuggestion != nil && len(in.ProfileSuggestion.Existing) > 0 {
+					<datalist id="profile-name-suggestions">
+						for _, n := range in.ProfileSuggestion.Existing {
+							<option value={ n }></option>
+						}
+					</datalist>
+					<p class="mt-1 text-xs text-sentinel-500">
+						{ profileExistingHint(in.ProfileSuggestion.Existing) } — versões antigas ficam imutáveis após a finalização. Esta nova versão será { profileNameSuggested(in) }.
+					</p>
+				} else {
+					<p class="mt-1 text-xs text-sentinel-500">
+						Primeira homologação para este modelo. Após finalizar, este profile fica imutável; novas homologações criam <code>_v2</code>, <code>_v3</code>, etc.
+					</p>
+				}
 			</label>
 			<label>
 				<span class="text-xs uppercase text-sentinel-500">Descrição (opcional)</span>
@@ -586,9 +613,23 @@ func filterKeysByCategory(keys []hom.CanonicalKey, category string) []hom.Canoni
 	return out
 }
 
-func defaultProfileName(in WizardInput) string {
+// profileNameSuggested devolve a próxima versão livre quando o handler
+// pré-computou via tplapp.SuggestProfileName; caso contrário, fallback _v1.
+func profileNameSuggested(in WizardInput) string {
+	if in.ProfileSuggestion != nil && in.ProfileSuggestion.Suggested != "" {
+		return in.ProfileSuggestion.Suggested
+	}
 	if in.Vendor != nil && in.Model != nil {
 		return in.Vendor.Name + "_" + in.Model.Model + "_homologated_v1"
 	}
 	return "homologated_profile_v1"
+}
+
+// profileExistingHint formata o texto-resumo dos profiles já existentes pra
+// este modelo, usado abaixo do input de nome.
+func profileExistingHint(existing []string) string {
+	if len(existing) == 1 {
+		return "Já existe 1 profile homologado para este modelo"
+	}
+	return fmt.Sprintf("Já existem %d profiles para este modelo", len(existing))
 }

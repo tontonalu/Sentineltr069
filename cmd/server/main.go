@@ -274,11 +274,12 @@ func run() error {
 	var homH *handlers.HomologationHandler
 	if homService != nil {
 		homH = &handlers.HomologationHandler{
-			Service:  homService,
-			Devices:  deviceRepo,
-			Models:   modelRepo,
-			Vendors:  vendorRepo,
-			HomModel: homModelRepoForView,
+			Service:   homService,
+			Devices:   deviceRepo,
+			Models:    modelRepo,
+			Vendors:   vendorRepo,
+			HomModel:  homModelRepoForView,
+			Templates: tplService,
 		}
 	}
 

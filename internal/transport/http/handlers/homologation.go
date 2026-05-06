@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
+	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
@@ -26,6 +27,9 @@ type HomologationHandler struct {
 	Models   inv.DeviceModelRepository
 	Vendors  inv.VendorRepository
 	HomModel hom.ModelHomologationRepo
+	// Templates é opcional: quando setado, alimenta o autocomplete de nome
+	// de profile no painel de finalização (próxima versão + nomes existentes).
+	Templates *tplapp.Service
 }
 
 // List GET /homologation — sessões ativas + recentes + atalho para nova.
@@ -146,6 +150,18 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 		// de diagnóstico para o operador entender o que aconteceu.
 		if stats, err := h.Service.SnapshotStats(r.Context(), id); err == nil {
 			in.Stats = stats
+		}
+	}
+
+	// Sugestão de nome do profile: próxima versão + nomes já usados pra este
+	// modelo (alimenta datalist de autocomplete no finalize panel). Só faz
+	// sentido quando temos templates service E vendor/model resolvidos.
+	if h.Templates != nil && in.Vendor != nil && in.Model != nil {
+		modelID := in.Model.ID
+		vendorName := in.Vendor.Name
+		modelName := in.Model.Model
+		if sg, err := h.Templates.SuggestProfileName(r.Context(), vendorName, modelName, &modelID); err == nil {
+			in.ProfileSuggestion = sg
 		}
 	}
 

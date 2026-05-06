@@ -633,6 +633,17 @@ func (r *fakeTplProfileRepo) SetActive(_ context.Context, id uuid.UUID, active b
 	p.IsActive = active
 	return nil
 }
+func (r *fakeTplProfileRepo) ListByModel(_ context.Context, modelID uuid.UUID) ([]tmplDomainProfile, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []tmplDomainProfile
+	for _, p := range r.store {
+		if p.ModelID != nil && *p.ModelID == modelID {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
 
 type fakeTplParamRepo struct {
 	mu    sync.Mutex

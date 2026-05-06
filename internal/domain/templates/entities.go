@@ -50,17 +50,24 @@ func (d DataType) Valid() bool {
 
 // Profile é o agregado raiz — um conjunto versionado de parâmetros para um
 // vendor/modelo (ou genérico). VendorID/ModelID NULL = aplicável a qualquer.
+//
+// Quando IsHomologated = TRUE, o conteúdo (header + parameters) é imutável:
+// Service.Update rejeita com ErrProfileImmutable. Apenas IsActive segue
+// editável (admin pode aposentar uma versão sem mudar seu conteúdo). Para
+// "evoluir" um profile homologado, abre-se uma nova sessão de homologação
+// que gera um Profile novo (ex.: nome _v2), preservando histórico.
 type Profile struct {
-	ID          uuid.UUID
-	Name        string
-	Description string
-	VendorID    *uuid.UUID
-	ModelID     *uuid.UUID
-	Version     int
-	IsActive    bool
-	CreatedBy   *uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             uuid.UUID
+	Name           string
+	Description    string
+	VendorID       *uuid.UUID
+	ModelID        *uuid.UUID
+	Version        int
+	IsActive       bool
+	IsHomologated  bool
+	CreatedBy      *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 
 	Parameters []Parameter
 }
