@@ -163,6 +163,28 @@ func (s *Service) GetSession(ctx context.Context, id uuid.UUID) (*hom.Session, e
 
 // ──────────────── Probe ────────────────
 
+// ResetProbe é a saída de emergência quando uma sessão fica travada em
+// `probing` (NBI fora do ar, server reiniciou no meio do probe, bug). Sai
+// de probing devolvendo o operador ao estado utilizável imediato:
+//   - se já existe TreeSnapshot → testing (operador retoma com árvore anterior)
+//   - se não → draft (operador clica Sondar de novo)
+//
+// Idempotente para não-probing: não faz nada e retorna nil.
+func (s *Service) ResetProbe(ctx context.Context, sessionID uuid.UUID) error {
+	sess, err := s.sessions.GetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if sess.Status != hom.SessionProbing {
+		return nil
+	}
+	target := hom.SessionDraft
+	if len(sess.TreeSnapshot) > 0 {
+		target = hom.SessionTesting
+	}
+	return s.sessions.UpdateStatus(ctx, sessionID, target)
+}
+
 // MarkProbing transiciona a sessão para `probing` em uma operação síncrona
 // e curta — só mexe no DB. Usado pelo handler HTTP antes de disparar o Probe
 // real numa goroutine: dessa forma a UI já reflete o estado "sondando" no
@@ -211,10 +233,24 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 		return nil, err
 	}
 
-	// Status de origem para rollback em caso de erro. Se já estávamos em
-	// `testing` (Probe disparado de novo), volta pra testing — operador
-	// continua trabalhando com a árvore antiga.
+	// Status de origem para rollback em caso de erro.
+	//
+	// Cuidado: o handler HTTP chama MarkProbing antes de disparar este
+	// método na goroutine, então sess.Status pode JÁ estar `probing` aqui.
+	// Se capturarmos isso como originalStatus, o rollback de erro restaura
+	// `probing` e a sessão fica travada nesse estado pra sempre. Inferimos
+	// o estado real anterior pela presença ou não do TreeSnapshot:
+	//   - sem snapshot → primeira sondagem, voltar para draft
+	//   - com snapshot → re-sondagem, voltar para testing (operador continua
+	//     trabalhando com a árvore anterior)
 	originalStatus := sess.Status
+	if originalStatus == hom.SessionProbing {
+		if len(sess.TreeSnapshot) > 0 {
+			originalStatus = hom.SessionTesting
+		} else {
+			originalStatus = hom.SessionDraft
+		}
+	}
 	if !originalStatus.IsActive() {
 		originalStatus = hom.SessionDraft
 	}

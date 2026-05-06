@@ -562,6 +562,7 @@ func run() error {
 					r.Post("/sessions", homH.Create)
 					r.Get("/sessions/{id}", homH.Wizard)
 					r.Post("/sessions/{id}/probe", homH.Probe)
+				r.Post("/sessions/{id}/reset-probe", homH.ResetProbe)
 					r.Post("/sessions/{id}/automap", homH.AutoMap)
 					r.Post("/sessions/{id}/mappings", homH.AddMapping)
 					r.Post("/sessions/{id}/mappings/{mid}/delete", homH.RemoveMapping)

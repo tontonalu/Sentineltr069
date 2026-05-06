@@ -77,15 +77,24 @@ templ probingState(in WizardInput) {
 				Você pode fechar a aba — o probe continua no servidor. Volte em alguns
 				minutos e o resultado vai estar aqui.
 			</p>
-			<form
-				method="POST"
-				action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/abandon") }
-				onsubmit="return confirm('Abandonar esta sessão? Cancela o probe em andamento.');"
-				class="mt-2"
-			>
-				<input type="hidden" name="_csrf" value={ in.CSRF }/>
-				<button type="submit" class="btn-ghost text-red-600 text-xs">Abandonar sessão</button>
-			</form>
+			<div class="mt-2 flex flex-wrap items-center justify-center gap-3">
+				<form
+					method="POST"
+					action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/reset-probe") }
+					onsubmit="return confirm('Forçar reset da sondagem? Use só se demorou muito mais que o esperado (~5min) — geralmente significa que o probe travou.');"
+				>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<button type="submit" class="btn-ghost text-amber-700 text-xs">Forçar reset (sondagem travada)</button>
+				</form>
+				<form
+					method="POST"
+					action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/abandon") }
+					onsubmit="return confirm('Abandonar esta sessão? Cancela o probe em andamento.');"
+				>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<button type="submit" class="btn-ghost text-red-600 text-xs">Abandonar sessão</button>
+				</form>
+			</div>
 		</div>
 		<script>
 			// Recarrega em 8s para checar se o probe já terminou. setTimeout

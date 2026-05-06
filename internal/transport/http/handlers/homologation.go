@@ -211,6 +211,23 @@ func (h *HomologationHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
 }
 
+// ResetProbe POST /homologation/sessions/{id}/reset-probe — saída de
+// emergência para sessão travada em probing (NBI lento/morto, server
+// reiniciou mid-probe). Devolve para testing se já tem snapshot, senão
+// para draft. Operador clica novamente "Sondar" depois.
+func (h *HomologationHandler) ResetProbe(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseSessionID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Service.ResetProbe(r.Context(), id); err != nil {
+		logger.FromContext(r.Context()).Error("reset probe", "err", err)
+		http.Error(w, friendlyHomError(err), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
+}
+
 // AddMapping POST /homologation/sessions/{id}/mappings — adiciona path mapeado.
 func (h *HomologationHandler) AddMapping(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseSessionID(w, r)
