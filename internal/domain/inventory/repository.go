@@ -49,6 +49,11 @@ type DeviceModelRepository interface {
 	GetByVendorAndModel(ctx context.Context, vendorID uuid.UUID, model string) (*DeviceModel, error)
 	ListByVendor(ctx context.Context, vendorID uuid.UUID) ([]DeviceModel, error)
 	List(ctx context.Context) ([]DeviceModel, error)
+
+	// SetTRDataModel atualiza apenas a coluna tr_data_model. Usado pelo
+	// Probe da homologação quando detecta que o cadastro estava errado
+	// (ex.: marcado TR-181 mas CPE responde InternetGatewayDevice.*).
+	SetTRDataModel(ctx context.Context, id uuid.UUID, tr string) error
 }
 
 // CustomerRepository — operações usadas pelo Plugin Voalle e pela UI.

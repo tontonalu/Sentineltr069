@@ -386,3 +386,15 @@ func (r *fakeModelRepo) List(_ context.Context) ([]domain.DeviceModel, error) {
 	}
 	return out, nil
 }
+
+func (r *fakeModelRepo) SetTRDataModel(_ context.Context, id uuid.UUID, tr string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, m := range r.byKey {
+		if m.ID == id {
+			m.TRDataModel = tr
+			return nil
+		}
+	}
+	return domain.ErrModelNotFound
+}

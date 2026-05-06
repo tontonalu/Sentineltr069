@@ -36,6 +36,41 @@ type GenieACSPort interface {
 	Refresh(ctx context.Context, deviceID, objectName string) (genieacs.TaskID, error)
 	GetParameterValues(ctx context.Context, deviceID string, paths []string) (genieacs.TaskID, error)
 	SetParameterValues(ctx context.Context, deviceID string, params []genieacs.Parameter) (genieacs.TaskID, error)
+	// GetTask devolve uma task ainda na fila do NBI. Quando a task completa,
+	// o NBI a remove e o client retorna ErrTaskNotFound — usamos isso como
+	// sinal de "done" no Probe largo.
+	GetTask(ctx context.Context, taskID string) (*genieacs.Task, error)
+}
+
+// probeWaitTimeout é o teto que o Probe espera os refreshObject completarem.
+// Cada CPE varia: alguns respondem em 5-10s, ONTs com firmware lento podem
+// levar 30-50s. Um teto de 60s cobre 95% dos casos sem deixar o operador
+// preso. Após o teto, seguimos pra GetDevice com o que houver no NBI —
+// melhor árvore parcial do que tela travada.
+const probeWaitTimeout = 60 * time.Second
+
+// probeBranches são os ramos top-level que o Probe pede refresh. Cobrimos
+// TR-098 e TR-181 simultaneamente — CPEs respondem só os que conhecem;
+// caminhos inválidos viram task fault no NBI sem afetar os demais.
+var probeBranches = []string{
+	// TR-098
+	"InternetGatewayDevice.DeviceInfo",
+	"InternetGatewayDevice.ManagementServer",
+	"InternetGatewayDevice.Time",
+	"InternetGatewayDevice.WANDevice",
+	"InternetGatewayDevice.LANDevice",
+	"InternetGatewayDevice.Services",
+
+	// TR-181
+	"Device.DeviceInfo",
+	"Device.ManagementServer",
+	"Device.Time",
+	"Device.WiFi",
+	"Device.IP",
+	"Device.PPP",
+	"Device.DHCPv4",
+	"Device.Ethernet",
+	"Device.Services",
 }
 
 // Service orquestra o ciclo do wizard.
@@ -162,14 +197,30 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 		}
 	}()
 
-	// Refresh é "best effort". Erro aqui não fatal: ainda podemos trabalhar
-	// com a árvore que já está no NBI desde o último Inform.
-	_, _ = s.genieacs.Refresh(ctx, d.GenieACSID, "")
+	// Refresh largo: emite refreshObject para os ramos top-level dos dois
+	// data models. Inform mínimo de muitos ONTs traz só DeviceInfo + a WAN
+	// ativa — sem refresh explícito da WLAN/LAN/Services o NBI não tem como
+	// devolvê-los. Ao emitir vários, cada CPE responde os que conhece e
+	// ignora o resto. ErrTaskNotFound é usado como sinal de "task done".
+	taskIDs := s.issueWideRefresh(ctx, d.GenieACSID)
+	s.waitForTasks(ctx, taskIDs, probeWaitTimeout)
 
-	// Lê snapshot atual (NBI mantém a última árvore conhecida em qualquer caso).
+	// Lê snapshot atual. Se o refresh teve sucesso parcial (algumas tasks
+	// ainda pendentes pelo timeout), o NBI já pode ter persistido as que
+	// retornaram — a árvore vem com o que estiver disponível.
 	dev, err := s.genieacs.GetDevice(ctx, d.GenieACSID)
 	if err != nil {
 		return nil, fmt.Errorf("homologation: GetDevice: %w", err)
+	}
+
+	// Auto-correção do data model: detecta a partir das chaves de topo da
+	// árvore (InternetGatewayDevice → TR-098 / Device → TR-181) e ajusta o
+	// cadastro do model se estiver divergente. Sem isso, hints e templates
+	// futuros olham a coluna errada e a sugestão automática nada encontra.
+	if detected := detectTRDataModel(dev.Raw); detected != "" {
+		if model, err := s.models.GetByID(ctx, sess.ModelID); err == nil && model.TRDataModel != detected {
+			_ = s.models.SetTRDataModel(ctx, model.ID, detected)
+		}
 	}
 
 	// Sanitiza secrets (senhas Wi-Fi/PPPoE/SIP) antes de persistir.
@@ -188,6 +239,81 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 	}
 	probeOK = true
 	return s.GetSession(ctx, sessionID)
+}
+
+// issueWideRefresh dispara um refreshObject para cada ramo top-level conhecido
+// (TR-098 e TR-181). Erros individuais (ramo inexistente, NBI lento) são
+// engolidos: queremos best-effort — o que conseguir, conseguiu. Devolve as
+// task IDs que foram aceitas pelo NBI para que o caller possa esperá-las.
+func (s *Service) issueWideRefresh(ctx context.Context, deviceID string) []genieacs.TaskID {
+	out := make([]genieacs.TaskID, 0, len(probeBranches))
+	for _, br := range probeBranches {
+		if tid, err := s.genieacs.Refresh(ctx, deviceID, br); err == nil && tid != "" {
+			out = append(out, tid)
+		}
+	}
+	return out
+}
+
+// waitForTasks bloqueia até todas as tasks completarem ou expirar `timeout`.
+// "Completou" = NBI já não devolve a task (ErrTaskNotFound) — é como o
+// GenieACS sinaliza done (task removida da fila ativa). Polling em 2s
+// equilibra latência percebida vs carga no NBI.
+//
+// Não devolve erro: probe é best-effort. Se o timeout estourar, segue com a
+// árvore parcial — melhor algo do que travar a UI.
+func (s *Service) waitForTasks(ctx context.Context, ids []genieacs.TaskID, timeout time.Duration) {
+	if len(ids) == 0 {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+	pending := make([]genieacs.TaskID, len(ids))
+	copy(pending, ids)
+
+	for time.Now().Before(deadline) && len(pending) > 0 {
+		remaining := pending[:0]
+		for _, id := range pending {
+			_, err := s.genieacs.GetTask(ctx, string(id))
+			if err == genieacs.ErrTaskNotFound {
+				continue // done
+			}
+			remaining = append(remaining, id)
+		}
+		pending = remaining
+		if len(pending) == 0 {
+			return
+		}
+
+		// Espera curta entre rodadas. Se ctx cancelar (operador fechou a
+		// página), abortamos o wait — probe segue com o que tem.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// detectTRDataModel inspeciona as chaves de topo do snapshot do GenieACS e
+// devolve "tr098", "tr181" ou "" (indeterminado).
+//
+//   - TR-098 expõe parâmetros sob `InternetGatewayDevice.*`.
+//   - TR-181 expõe sob `Device.*`.
+//
+// CPEs que respondem ambos (raros) seguem o que vier primeiro na ordem
+// abaixo. Quando inconcluso, devolvemos "" — caller mantém o cadastro atual
+// em vez de chutar.
+func detectTRDataModel(raw map[string]any) string {
+	if raw == nil {
+		return ""
+	}
+	if _, ok := raw["InternetGatewayDevice"]; ok {
+		return inv.TR098
+	}
+	if _, ok := raw["Device"]; ok {
+		return inv.TR181
+	}
+	return ""
 }
 
 // ──────────────── BrowseTree ────────────────

@@ -227,6 +227,21 @@ func (r *DeviceModelRepo) List(ctx context.Context) ([]inventory.DeviceModel, er
 	return out, rows.Err()
 }
 
+// SetTRDataModel atualiza apenas tr_data_model. Constraint do banco já
+// valida o enum (tr098/tr181) — caller pode passar string crua.
+func (r *DeviceModelRepo) SetTRDataModel(ctx context.Context, id uuid.UUID, tr string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE device_models SET tr_data_model = $2 WHERE id = $1`,
+		id, tr)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return inventory.ErrModelNotFound
+	}
+	return nil
+}
+
 // ────────────────────── CustomerRepository ──────────────────────
 
 type CustomerRepo struct{ pool Pool }

@@ -153,15 +153,14 @@ func (s *Service) ApplyAutoMap(ctx context.Context, sessionID uuid.UUID, suggest
 	return created, nil
 }
 
-// pickHints escolhe a lista correta de hints conforme o TR data model do device.
-// Se o data model do model não for nem TR-098 nem TR-181, usa ambos (best effort).
+// pickHints devolve SEMPRE os hints dos dois data models. O match contra a
+// árvore real (ParamValue não-nil) age como filtro: hints inválidos pro CPE
+// não produzem sugestão. Tentar ambos custa O(N) extra e resolve casos onde
+// o modelo foi cadastrado com o data model errado, ou CPEs híbridos.
 func pickHints(k hom.CanonicalKey, model *inv.DeviceModel) []string {
-	switch model.TRDataModel {
-	case inv.TR098:
-		return k.HintPathsTR098
-	case inv.TR181:
-		return k.HintPathsTR181
-	}
-	out := append([]string{}, k.HintPathsTR098...)
-	return append(out, k.HintPathsTR181...)
+	_ = model
+	out := make([]string, 0, len(k.HintPathsTR098)+len(k.HintPathsTR181))
+	out = append(out, k.HintPathsTR098...)
+	out = append(out, k.HintPathsTR181...)
+	return out
 }

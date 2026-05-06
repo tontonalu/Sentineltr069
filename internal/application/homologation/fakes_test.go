@@ -492,6 +492,15 @@ func (r *fakeModelRepo) ListByVendor(_ context.Context, _ uuid.UUID) ([]inv.Devi
 	return nil, nil
 }
 func (r *fakeModelRepo) List(_ context.Context) ([]inv.DeviceModel, error) { return nil, nil }
+func (r *fakeModelRepo) SetTRDataModel(_ context.Context, id uuid.UUID, tr string) error {
+	m, ok := r.store[id]
+	if !ok {
+		return inv.ErrModelNotFound
+	}
+	m.TRDataModel = tr
+	r.store[id] = m
+	return nil
+}
 
 // ──────────── GenieACSPort fake ────────────
 
@@ -525,6 +534,12 @@ func (g *fakeGenie) GetDevice(_ context.Context, id string) (*genieacs.Device, e
 
 func (g *fakeGenie) Refresh(_ context.Context, _, _ string) (genieacs.TaskID, error) {
 	return "task-refresh", nil
+}
+
+// GetTask devolve sempre ErrTaskNotFound — sinaliza ao Probe que toda task
+// já completou e ele segue direto pra GetDevice. Mantém os testes rápidos.
+func (g *fakeGenie) GetTask(_ context.Context, _ string) (*genieacs.Task, error) {
+	return nil, genieacs.ErrTaskNotFound
 }
 
 func (g *fakeGenie) GetParameterValues(_ context.Context, _ string, _ []string) (genieacs.TaskID, error) {

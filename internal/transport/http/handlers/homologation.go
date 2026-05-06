@@ -127,11 +127,17 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 			in.TreePrefix = prefix
 			in.TreeSearch = search
 		}
-		// Sugere canonical_key por linha: para cada hint do catálogo que
-		// existe na árvore, marca path → key. O dropdown inline já vem
-		// pré-selecionado quando o operador encontra a linha. Match TR-098
-		// vs TR-181 segue o data model declarado para o modelo do device.
-		in.SuggestedKeyByPath = buildSuggestedKeyByPath(keys, in.Model)
+		// Sugere canonical_key por linha. Pass 1 (exact): bate hints do
+		// catálogo direto contra o path. Pass 2 (fuzzy): para paths não-WiFi
+		// observados na árvore, normaliza números de instância e tenta de
+		// novo — cobre WANConnectionDevice.{1,2,3} variando entre vendors.
+		// Passamos os paths visíveis na árvore filtrada; é suficiente para
+		// pré-selecionar nas linhas que o operador está vendo.
+		observedPaths := make([]string, 0, len(in.Tree))
+		for _, e := range in.Tree {
+			observedPaths = append(observedPaths, e.Path)
+		}
+		in.SuggestedKeyByPath = buildSuggestedKeyByPath(keys, in.Model, observedPaths)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -377,18 +383,31 @@ func (h *HomologationHandler) Abandon(w http.ResponseWriter, r *http.Request) {
 // ──────────────── helpers ────────────────
 
 // buildSuggestedKeyByPath inverte o catálogo (canonical_key → hint paths)
-// numa indexação direta path → canonical_key, para que o dropdown inline da
-// árvore consiga pré-selecionar a chave certa em O(1) por linha. O lookup
-// usa apenas o data model declarado para o modelo do device (TR-098 ou
-// TR-181); quando o modelo não está disponível, considera ambos para não
-// perder sugestão. Em caso de colisão (dois canonical_keys reivindicando
-// o mesmo path), o primeiro vence — o catálogo é seedado de forma a evitar
-// isso, mas a heurística não trava se houver um conflito.
-func buildSuggestedKeyByPath(keys []hom.CanonicalKey, model *inv.DeviceModel) map[string]string {
+// numa indexação path → canonical_key, para que o dropdown inline da árvore
+// consiga pré-selecionar a chave certa em O(1) por linha.
+//
+// Duas passadas:
+//
+//  1. Exact match: cada hint path do catálogo vira uma entrada direta. É a
+//     forma mais segura — diferencia Wi-Fi 2.4 (.WLANConfiguration.1.SSID)
+//     de Wi-Fi 5GHz (.WLANConfiguration.5.SSID) sem ambiguidade.
+//
+//  2. Fuzzy match (instance-agnostic): para cada path observado na árvore
+//     que não bateu exact, normalizamos os números de instância (`.1.` →
+//     `.*.`) e procuramos um hint com mesma forma normalizada. Cobre o
+//     caso clássico de WANConnectionDevice.{1,2,3} variando entre vendors
+//     (Vsol/ZTE/Huawei). Paths Wi-Fi são EXCLUÍDOS desta passada porque o
+//     número da instância carrega a banda (perderia a distinção 2.4/5).
+//
+// Em caso de colisão (dois canonical_keys reivindicando o mesmo path), o
+// primeiro vence — o seed do catálogo é desenhado para evitar isso, mas a
+// heurística não trava.
+func buildSuggestedKeyByPath(keys []hom.CanonicalKey, model *inv.DeviceModel, observedPaths []string) map[string]string {
 	out := make(map[string]string, len(keys))
+
+	// Pass 1 — exact match.
 	for _, k := range keys {
-		hints := pickHintsForModel(k, model)
-		for _, h := range hints {
+		for _, h := range pickHintsForModel(k, model) {
 			if h == "" {
 				continue
 			}
@@ -398,22 +417,89 @@ func buildSuggestedKeyByPath(keys []hom.CanonicalKey, model *inv.DeviceModel) ma
 			out[h] = k.Key
 		}
 	}
+
+	if len(observedPaths) == 0 {
+		return out
+	}
+
+	// Pass 2 — fuzzy: normalized hint index (skip Wi-Fi).
+	normIndex := make(map[string]string, len(keys))
+	for _, k := range keys {
+		for _, h := range pickHintsForModel(k, model) {
+			if h == "" || isWiFiPath(h) {
+				continue
+			}
+			nh := normalizeNumericSegments(h)
+			if _, exists := normIndex[nh]; exists {
+				continue
+			}
+			normIndex[nh] = k.Key
+		}
+	}
+	for _, p := range observedPaths {
+		if _, exists := out[p]; exists {
+			continue
+		}
+		if isWiFiPath(p) {
+			continue
+		}
+		np := normalizeNumericSegments(p)
+		if k, ok := normIndex[np]; ok {
+			out[p] = k
+		}
+	}
 	return out
 }
 
+// normalizeNumericSegments substitui cada segmento puramente numérico por
+// "*", produzindo uma forma canônica que ignora número de instância.
+//
+// Ex.: "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username"
+//   → "InternetGatewayDevice.WANDevice.*.WANConnectionDevice.*.WANPPPConnection.*.Username"
+func normalizeNumericSegments(p string) string {
+	parts := strings.Split(p, ".")
+	for i, s := range parts {
+		if isAllDigits(s) {
+			parts[i] = "*"
+		}
+	}
+	return strings.Join(parts, ".")
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isWiFiPath identifica paths cujo número de instância carrega informação
+// semântica (banda/AP) e portanto NÃO podem entrar na fuzzy match.
+func isWiFiPath(p string) bool {
+	return strings.Contains(p, "WLANConfiguration") ||
+		strings.Contains(p, "WiFi.Radio") ||
+		strings.Contains(p, "WiFi.SSID") ||
+		strings.Contains(p, "WiFi.AccessPoint")
+}
+
+// pickHintsForModel devolve SEMPRE os hints dos dois data models (TR-098 +
+// TR-181). O exact match contra a árvore real garante que só hints válidos
+// pra aquele CPE produzam sugestão — tentar ambos custa O(N) extra mas
+// resolve dois cenários comuns:
+//  1) Cadastro do modelo marcou o data model errado (operador colocou TR-181
+//     num CPE que reporta InternetGatewayDevice.*).
+//  2) CPE genuinamente híbrido (raro mas existe — alguns Huawei expõem TR-098
+//     por compat e TR-181 simultaneamente).
+//
+// model é mantido na assinatura para facilitar futura priorização (ex.: dar
+// peso menor ao data model "errado" caso queiramos rankear sugestões).
 func pickHintsForModel(k hom.CanonicalKey, model *inv.DeviceModel) []string {
-	if model == nil {
-		out := make([]string, 0, len(k.HintPathsTR098)+len(k.HintPathsTR181))
-		out = append(out, k.HintPathsTR098...)
-		out = append(out, k.HintPathsTR181...)
-		return out
-	}
-	switch model.TRDataModel {
-	case inv.TR098:
-		return k.HintPathsTR098
-	case inv.TR181:
-		return k.HintPathsTR181
-	}
+	_ = model
 	out := make([]string, 0, len(k.HintPathsTR098)+len(k.HintPathsTR181))
 	out = append(out, k.HintPathsTR098...)
 	out = append(out, k.HintPathsTR181...)
