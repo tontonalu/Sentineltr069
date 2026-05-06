@@ -110,6 +110,13 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 	keys, _ := h.Service.ListCanonicalKeys(r.Context(), "")
 	in.CanonicalKeys = keys
 
+	// Indexa canonical_keys já mapeadas nesta sessão — UI desabilita opções
+	// duplicadas no <select> inline da árvore.
+	in.MappedKeys = make(map[string]bool, len(sess.Mappings))
+	for _, m := range sess.Mappings {
+		in.MappedKeys[m.CanonicalKey] = true
+	}
+
 	// Tree opcional — só renderiza se há snapshot.
 	if len(sess.TreeSnapshot) > 0 {
 		prefix := strings.TrimSpace(r.URL.Query().Get("prefix"))
@@ -120,6 +127,11 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 			in.TreePrefix = prefix
 			in.TreeSearch = search
 		}
+		// Sugere canonical_key por linha: para cada hint do catálogo que
+		// existe na árvore, marca path → key. O dropdown inline já vem
+		// pré-selecionado quando o operador encontra a linha. Match TR-098
+		// vs TR-181 segue o data model declarado para o modelo do device.
+		in.SuggestedKeyByPath = buildSuggestedKeyByPath(keys, in.Model)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -363,6 +375,50 @@ func (h *HomologationHandler) Abandon(w http.ResponseWriter, r *http.Request) {
 }
 
 // ──────────────── helpers ────────────────
+
+// buildSuggestedKeyByPath inverte o catálogo (canonical_key → hint paths)
+// numa indexação direta path → canonical_key, para que o dropdown inline da
+// árvore consiga pré-selecionar a chave certa em O(1) por linha. O lookup
+// usa apenas o data model declarado para o modelo do device (TR-098 ou
+// TR-181); quando o modelo não está disponível, considera ambos para não
+// perder sugestão. Em caso de colisão (dois canonical_keys reivindicando
+// o mesmo path), o primeiro vence — o catálogo é seedado de forma a evitar
+// isso, mas a heurística não trava se houver um conflito.
+func buildSuggestedKeyByPath(keys []hom.CanonicalKey, model *inv.DeviceModel) map[string]string {
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		hints := pickHintsForModel(k, model)
+		for _, h := range hints {
+			if h == "" {
+				continue
+			}
+			if _, exists := out[h]; exists {
+				continue
+			}
+			out[h] = k.Key
+		}
+	}
+	return out
+}
+
+func pickHintsForModel(k hom.CanonicalKey, model *inv.DeviceModel) []string {
+	if model == nil {
+		out := make([]string, 0, len(k.HintPathsTR098)+len(k.HintPathsTR181))
+		out = append(out, k.HintPathsTR098...)
+		out = append(out, k.HintPathsTR181...)
+		return out
+	}
+	switch model.TRDataModel {
+	case inv.TR098:
+		return k.HintPathsTR098
+	case inv.TR181:
+		return k.HintPathsTR181
+	}
+	out := make([]string, 0, len(k.HintPathsTR098)+len(k.HintPathsTR181))
+	out = append(out, k.HintPathsTR098...)
+	out = append(out, k.HintPathsTR181...)
+	return out
+}
 
 func (h *HomologationHandler) parseSessionID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))

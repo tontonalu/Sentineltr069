@@ -15,10 +15,17 @@ type WizardInput struct {
 	Model         *inv.DeviceModel
 	Vendor        *inv.Vendor
 	CanonicalKeys []hom.CanonicalKey
-	Tree          []genieacs.TreeEntry
-	TreePrefix    string
-	TreeSearch    string
-	CSRF          string
+	// SuggestedKeyByPath: tr_path → canonical_key sugerida (match de hint).
+	// Pré-seleciona a opção certa no dropdown inline da árvore — operador
+	// só precisa clicar "+ add" quando o sistema já reconheceu o parâmetro.
+	SuggestedKeyByPath map[string]string
+	// MappedKeys: canonical_keys já usadas nesta sessão (evita duplicar
+	// na UI; serviço também valida via UNIQUE).
+	MappedKeys map[string]bool
+	Tree       []genieacs.TreeEntry
+	TreePrefix string
+	TreeSearch string
+	CSRF       string
 }
 
 templ Wizard(in WizardInput) {
@@ -147,27 +154,52 @@ templ treePanel(in WizardInput) {
 	</section>
 }
 
-// quickAddMappingForm: botão "+ adicionar" inline que pré-popula tr_path com
-// o path da linha. Operador escolhe canonical_key na próxima tela ou no form
-// ao lado.
+// quickAddMappingForm: botão "+ adicionar" inline em cada linha da árvore.
+// Apresenta um <select> agrupado por categoria com TODAS as canonical_keys
+// do catálogo — operador escolhe da lista padronizada em vez de digitar.
+// Quando o path da linha bate com um hint_path do catálogo (matching feito
+// no handler via in.SuggestedKeyByPath), a opção certa já vem selecionada
+// e o operador só precisa clicar "+ add".
 templ quickAddMappingForm(in WizardInput, e genieacs.TreeEntry) {
 	<form
 		method="POST"
 		action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/mappings") }
-		class="inline"
+		class="inline-flex items-center gap-1"
 	>
 		<input type="hidden" name="_csrf" value={ in.CSRF }/>
 		<input type="hidden" name="tr_path" value={ e.Path }/>
 		<input type="hidden" name="data_type" value={ inferDataType(e.Type) }/>
-		<input
-			type="text"
-			name="canonical_key"
-			placeholder="canonical_key"
-			required
-			class="input w-32 text-xs py-0"
-		/>
+		<select name="canonical_key" required class="rounded border border-sentinel-200 text-xs py-0 px-1 max-w-[14rem]">
+			<option value="">— escolher chave —</option>
+			for _, cat := range canonicalCategoryOrder() {
+				@keyOptionsForCategory(in, e.Path, cat)
+			}
+		</select>
 		<button type="submit" class="text-blue-600 hover:underline">+ add</button>
+		if sg, ok := in.SuggestedKeyByPath[e.Path]; ok {
+			<span class="text-[10px] text-emerald-700" title="Sugestão automática do catálogo">↳ { sg }</span>
+		}
 	</form>
+}
+
+// keyOptionsForCategory emite um <optgroup> com as canonical_keys de uma
+// categoria, marcando como selected a key sugerida (se houver) e como
+// disabled+anotada as keys já mapeadas em outro path da mesma sessão.
+templ keyOptionsForCategory(in WizardInput, rowPath, category string) {
+	{{ filtered := filterKeysByCategory(in.CanonicalKeys, category) }}
+	if len(filtered) > 0 {
+		<optgroup label={ canonicalCategoryLabel(category) }>
+			for _, k := range filtered {
+				if in.SuggestedKeyByPath[rowPath] == k.Key {
+					<option value={ k.Key } selected>{ k.LabelPT } ✓</option>
+				} else if in.MappedKeys[k.Key] {
+					<option value={ k.Key } disabled>{ k.LabelPT } (já mapeada)</option>
+				} else {
+					<option value={ k.Key }>{ k.LabelPT }</option>
+				}
+			}
+		</optgroup>
+	}
 }
 
 templ mappingsPanel(in WizardInput) {
@@ -413,6 +445,50 @@ func defaultIfEmpty(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// canonicalCategoryOrder define a ordem fixa em que os <optgroup> aparecem
+// no dropdown — agrupa antes pelo que o operador costuma trocar (Wi-Fi /
+// WAN / LAN) e empurra device/voice/other pro fim.
+func canonicalCategoryOrder() []string {
+	return []string{
+		hom.CategoryWiFi,
+		hom.CategoryWAN,
+		hom.CategoryLAN,
+		hom.CategoryMgmt,
+		hom.CategoryDevice,
+		hom.CategoryVoice,
+		hom.CategoryOther,
+	}
+}
+
+func canonicalCategoryLabel(c string) string {
+	switch c {
+	case hom.CategoryWiFi:
+		return "Wi-Fi"
+	case hom.CategoryWAN:
+		return "WAN"
+	case hom.CategoryLAN:
+		return "LAN"
+	case hom.CategoryMgmt:
+		return "Gerência (ACS)"
+	case hom.CategoryDevice:
+		return "Device"
+	case hom.CategoryVoice:
+		return "Voz / SIP"
+	default:
+		return "Outros"
+	}
+}
+
+func filterKeysByCategory(keys []hom.CanonicalKey, category string) []hom.CanonicalKey {
+	out := make([]hom.CanonicalKey, 0, len(keys)/2)
+	for _, k := range keys {
+		if k.Category == category {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func defaultProfileName(in WizardInput) string {
