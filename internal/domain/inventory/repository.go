@@ -81,4 +81,10 @@ type DeviceRepository interface {
 	// Apenas devices marcados podem ser usados como lab_device em uma sessão de
 	// homologação — isso é a barreira anti-acidente para o write test do wizard.
 	SetHomologationLab(ctx context.Context, id uuid.UUID, isLab bool) error
+
+	// SetModel atribui (ou limpa, com modelID == nil) o vínculo do device a um
+	// DeviceModel. Usado pela UI quando o sync com GenieACS não consegue
+	// identificar o modelo automaticamente (Inform sem DeviceID.Manufacturer
+	// ou modelo ainda não cadastrado em /settings/models).
+	SetModel(ctx context.Context, id uuid.UUID, modelID *uuid.UUID) error
 }

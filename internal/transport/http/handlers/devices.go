@@ -134,6 +134,20 @@ func (h *DevicesHandler) Detail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Catálogo completo para o dropdown "Atribuir modelo". Mesmo quando o
+	// device já tem modelo, deixamos o usuário trocar (devices de lab podem
+	// ser reaproveitados entre homologações de modelos diferentes).
+	if all, err := h.Models.List(r.Context()); err == nil {
+		in.AllModels = all
+		vendorByID := make(map[uuid.UUID]string, len(all))
+		if vs, err := h.Vendors.List(r.Context()); err == nil {
+			for _, v := range vs {
+				vendorByID[v.ID] = v.Name
+			}
+		}
+		in.VendorNameByID = vendorByID
+	}
 	if d.CustomerID != nil {
 		if c, err := h.Customers.GetByID(r.Context(), *d.CustomerID); err == nil {
 			in.Customer = c
@@ -177,6 +191,50 @@ func (h *DevicesHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.GenieACS.Reboot(r.Context(), d.GenieACSID); err != nil {
 		logger.FromContext(r.Context()).Error("reboot", "err", err, "device", d.GenieACSID)
 		http.Error(w, "falha ao agendar reboot", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/devices/"+d.ID.String(), http.StatusSeeOther)
+}
+
+// SetModel POST /devices/{id}/set-model — atribui (ou limpa) o modelo do device.
+// Form param `model_id` = UUID do DeviceModel. Vazio limpa o vínculo.
+//
+// Caso de uso: quando o sync com GenieACS não detectou Manufacturer/ModelName
+// (ONUs que só populam parte do TR-069), o usuário pode cadastrar o modelo em
+// /settings/models e aqui apontar o device para ele — desbloqueia homologação.
+func (h *DevicesHandler) SetModel(w http.ResponseWriter, r *http.Request) {
+	d := h.deviceFromURL(w, r)
+	if d == nil {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "form inválido", http.StatusBadRequest)
+		return
+	}
+	raw := strings.TrimSpace(r.PostForm.Get("model_id"))
+	var modelID *uuid.UUID
+	if raw != "" {
+		mid, err := uuid.Parse(raw)
+		if err != nil {
+			http.Error(w, "model_id inválido", http.StatusBadRequest)
+			return
+		}
+		// Garante que o modelo existe (FK no Postgres já protege, mas aqui
+		// damos uma mensagem amigável em vez de 500).
+		if _, err := h.Models.GetByID(r.Context(), mid); err != nil {
+			if errors.Is(err, domain.ErrModelNotFound) {
+				http.Error(w, "modelo não encontrado", http.StatusBadRequest)
+				return
+			}
+			logger.FromContext(r.Context()).Error("get model", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		modelID = &mid
+	}
+	if err := h.Devices.SetModel(r.Context(), d.ID, modelID); err != nil {
+		logger.FromContext(r.Context()).Error("set model", "err", err, "device", d.ID)
+		http.Error(w, "falha ao atribuir modelo", http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/devices/"+d.ID.String(), http.StatusSeeOther)

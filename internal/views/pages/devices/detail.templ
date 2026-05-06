@@ -1,6 +1,8 @@
 package devices
 
 import (
+	"github.com/google/uuid"
+
 	identity "github.com/celinet/sentinel-acs/internal/domain/identity"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	"github.com/celinet/sentinel-acs/internal/views/layouts"
@@ -13,6 +15,12 @@ type DetailInput struct {
 	Model    *domain.DeviceModel
 	Customer *domain.Customer
 	POP      *domain.POP
+
+	// Catálogo para o form "Atribuir modelo". AllModels é a lista completa
+	// (já carregada no handler); VendorNameByID resolve o rótulo
+	// "Vendor — Modelo" sem fan-out de queries no template.
+	AllModels      []domain.DeviceModel
+	VendorNameByID map[uuid.UUID]string
 
 	// Permissões do usuário corrente (para mostrar/esconder botões).
 	CanReboot            bool
@@ -46,6 +54,9 @@ templ Detail(csrfToken string, in DetailInput) {
 				</div>
 			</div>
 			@deviceActions(csrfToken, in)
+			if in.CanHomologate {
+				@modelAssign(csrfToken, in)
+			}
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 				<section class="rounded-lg bg-white p-6 shadow">
 					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Identificação</h2>
@@ -243,6 +254,62 @@ templ labToggle(csrfToken string, d domain.Device) {
 			>Marcar como lab</button>
 		}
 	</form>
+}
+
+// modelAssign renderiza o form para atribuir/trocar manualmente o
+// DeviceModel do CPE. Necessário quando o sync com GenieACS não detecta
+// Manufacturer/ModelName no Inform — sem isso o device fica sem `model_id`
+// e a homologação não pode ser iniciada (ErrSessionMissingModel).
+templ modelAssign(csrfToken string, in DetailInput) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		<div class="mb-2 flex items-center justify-between">
+			<h2 class="text-sm font-medium text-sentinel-700">Modelo do device</h2>
+			if in.Model != nil {
+				<span class="text-xs text-sentinel-500">Atual: { in.Model.Model }</span>
+			} else {
+				<span class="text-xs text-amber-700">Não atribuído — homologação requer modelo</span>
+			}
+		</div>
+		if len(in.AllModels) == 0 {
+			<p class="text-sm text-sentinel-600">
+				Nenhum modelo cadastrado.
+				<a href="/settings/models/new" class="underline">Cadastre um em Settings → Modelos</a>
+				e volte aqui para atribuir.
+			</p>
+		} else {
+			<form method="POST" action={ templ.URL("/devices/" + in.Device.ID.String() + "/set-model") } class="flex flex-wrap items-center gap-2">
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				<select name="model_id" class="rounded border border-sentinel-300 px-2 py-1 text-sm">
+					<option value="">— selecione —</option>
+					for _, m := range in.AllModels {
+						if in.Model != nil && m.ID == in.Model.ID {
+							<option value={ m.ID.String() } selected>{ modelOptionLabel(m, in.VendorNameByID) }</option>
+						} else {
+							<option value={ m.ID.String() }>{ modelOptionLabel(m, in.VendorNameByID) }</option>
+						}
+					}
+				</select>
+				<button type="submit" class="btn-primary">Salvar modelo</button>
+				if in.Model != nil {
+					<button
+						type="submit"
+						name="model_id"
+						value=""
+						class="btn-ghost"
+						onclick="return confirm('Limpar o modelo deste device?');"
+					>Limpar</button>
+				}
+				<a href="/settings/models/new" class="ml-auto text-xs text-sentinel-500 underline">Cadastrar novo modelo</a>
+			</form>
+		}
+	</section>
+}
+
+func modelOptionLabel(m domain.DeviceModel, vendorNames map[uuid.UUID]string) string {
+	if name, ok := vendorNames[m.VendorID]; ok && name != "" {
+		return name + " — " + m.Model
+	}
+	return m.Model
 }
 
 func deviceTitle(d domain.Device) string {

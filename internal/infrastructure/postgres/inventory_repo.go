@@ -533,6 +533,21 @@ func (r *DeviceRepo) SetHomologationLab(ctx context.Context, id uuid.UUID, isLab
 	return nil
 }
 
+// SetModel sobrescreve o model_id do device. Aceita nil para limpar o vínculo.
+// Sync subsequente preserva o valor manual via COALESCE no Upsert.
+func (r *DeviceRepo) SetModel(ctx context.Context, id uuid.UUID, modelID *uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE devices SET model_id = $2 WHERE id = $1`,
+		id, modelID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return inventory.ErrDeviceNotFound
+	}
+	return nil
+}
+
 // MarkInform atualiza os campos de "última atividade" sem tocar nos vínculos.
 // Status é recalculado pelo caller (sync job sabe o threshold configurado).
 func (r *DeviceRepo) MarkInform(ctx context.Context, genieacsID string, lastInform time.Time, lastBoot *time.Time, fwVersion string) error {

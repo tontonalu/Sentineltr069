@@ -453,6 +453,16 @@ func (r *fakeDeviceRepo) SetHomologationLab(_ context.Context, id uuid.UUID, isL
 	d.IsHomologationLab = isLab
 	return nil
 }
+func (r *fakeDeviceRepo) SetModel(_ context.Context, id uuid.UUID, modelID *uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.store[id]
+	if !ok {
+		return inv.ErrDeviceNotFound
+	}
+	d.ModelID = modelID
+	return nil
+}
 
 // ──────────── DeviceModelRepository (parcial, só GetByID) ────────────
 

@@ -130,6 +130,17 @@ func (r *fakeDeviceRepo) SetHomologationLab(_ context.Context, id uuid.UUID, isL
 	return nil
 }
 
+func (r *fakeDeviceRepo) SetModel(_ context.Context, id uuid.UUID, modelID *uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.byID[id]
+	if !ok {
+		return domain.ErrDeviceNotFound
+	}
+	d.ModelID = modelID
+	return nil
+}
+
 // ──────────── CustomerRepo fake ────────────
 
 type fakeCustomerRepo struct {

@@ -503,6 +503,8 @@ func run() error {
 				Post("/{id}/delete", devicesH.Delete)
 			r.With(mw.RequirePermission("homologation", "run")).
 				Post("/{id}/mark-lab", devicesH.MarkLab)
+			r.With(mw.RequirePermission("homologation", "run")).
+				Post("/{id}/set-model", devicesH.SetModel)
 
 			// Aplicar profile a este device — exige provisioning.apply.
 			if provService != nil {

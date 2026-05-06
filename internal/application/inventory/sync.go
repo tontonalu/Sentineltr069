@@ -175,6 +175,25 @@ func (s *SyncService) syncDevice(
 
 	oui := genieacs.FirstNonEmpty(d.Raw, "DeviceID.OUI")
 
+	// Fallback final: muitos ONUs (V-SOL, Intelbras, Huawei mini-OLT) não
+	// populam o objeto DeviceID nem TR-098/TR-181 — só o `_id` do GenieACS,
+	// que sempre vem no formato "OUI-ProductClass-SerialNumber". Sem isso,
+	// devices recém-cadastrados aparecem com Vendor/Modelo/Serial vazios e
+	// ficam impedidos de iniciar homologação.
+	if oui == "" || serial == "" || modelName == "" {
+		if pOUI, pProduct, pSerial, ok := parseGenieACSID(d.ID); ok {
+			if oui == "" {
+				oui = pOUI
+			}
+			if serial == "" {
+				serial = pSerial
+			}
+			if modelName == "" {
+				modelName = pProduct
+			}
+		}
+	}
+
 	fwVersion := genieacs.FirstNonEmpty(d.Raw,
 		"VirtualParameters.SoftwareVersion",
 		"InternetGatewayDevice.DeviceInfo.SoftwareVersion",
@@ -382,6 +401,26 @@ func (s *SyncService) resolveModel(ctx context.Context, vendorID uuid.UUID, mode
 	}
 	cache[key] = newM.ID
 	return newM.ID, nil
+}
+
+// parseGenieACSID quebra o `_id` do GenieACS no formato canônico
+// `OUI-ProductClass-SerialNumber`. Usamos SplitN(3) porque o serial pode
+// conter `-` (e o ProductClass do TR-069 não pode), garantindo que apenas os
+// dois primeiros separadores são consumidos como delimitadores.
+//
+// Devolve ok=false quando o id não tem os três campos preenchidos.
+func parseGenieACSID(id string) (oui, productClass, serial string, ok bool) {
+	parts := strings.SplitN(id, "-", 3)
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	oui = strings.TrimSpace(parts[0])
+	productClass = strings.TrimSpace(parts[1])
+	serial = strings.TrimSpace(parts[2])
+	if oui == "" || productClass == "" || serial == "" {
+		return "", "", "", false
+	}
+	return oui, productClass, serial, true
 }
 
 // slugify normaliza um nome de vendor para uso como slug.
