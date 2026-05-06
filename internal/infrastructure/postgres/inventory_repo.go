@@ -140,6 +140,24 @@ func (r *VendorRepo) List(ctx context.Context) ([]inventory.Vendor, error) {
 	return out, rows.Err()
 }
 
+// Update renomeia um vendor (e atualiza o slug). Devolve ErrSlugDuplicate
+// se o novo slug colide com outro vendor existente (UNIQUE constraint).
+// Devices/models referenciando este vendor seguem via FK — não tocamos.
+func (r *VendorRepo) Update(ctx context.Context, v *inventory.Vendor) error {
+	const q = `UPDATE vendors SET slug = $2, name = $3 WHERE id = $1`
+	tag, err := r.pool.Exec(ctx, q, v.ID, v.Slug, v.Name)
+	if err != nil {
+		if isUniqueViolation(err, "vendors_slug_key") || isUniqueViolation(err, "vendors_name_key") {
+			return inventory.ErrSlugDuplicate
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return inventory.ErrVendorNotFound
+	}
+	return nil
+}
+
 // ────────────────────── DeviceModelRepository ──────────────────────
 
 type DeviceModelRepo struct{ pool Pool }

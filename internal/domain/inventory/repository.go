@@ -40,6 +40,12 @@ type VendorRepository interface {
 	GetBySlug(ctx context.Context, slug string) (*Vendor, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Vendor, error)
 	List(ctx context.Context) ([]Vendor, error)
+
+	// Update altera nome e slug de um vendor existente. Slug é re-derivado
+	// do nome no caller — devolve ErrSlugDuplicate se outro vendor já tem
+	// o slug calculado. Usado para corrigir cadastros como "Realtek" → "V-SOL"
+	// quando o sync inicial pegou o nome do chipset em vez do brand real.
+	Update(ctx context.Context, v *Vendor) error
 }
 
 // DeviceModelRepository

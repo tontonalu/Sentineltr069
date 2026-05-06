@@ -194,8 +194,10 @@ func (h *HomologationHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	}
 	// Logger sobrevive à goroutine; ctx do request seria cancelado quando o
 	// redirect retorna e o request fecha — usamos Background para não matar
-	// o probe no meio.
+	// o probe no meio. Por isso suprimimos o gosec G118 (CWE-400): a
+	// detachment é intencional e bounded por context.WithTimeout(5min).
 	parentLog := logger.FromContext(r.Context())
+	// #nosec G118 -- async probe deve sobreviver ao request HTTP que o disparou; bound por timeout abaixo
 	go func() {
 		bgCtx, cancel := context.WithTimeout(
 			logger.WithLogger(context.Background(), parentLog),

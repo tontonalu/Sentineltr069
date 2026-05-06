@@ -308,6 +308,18 @@ func (r *fakeVendorRepo) List(_ context.Context) ([]domain.Vendor, error) {
 	return out, nil
 }
 
+func (r *fakeVendorRepo) Update(_ context.Context, v *domain.Vendor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.byID[v.ID]
+	if !ok {
+		return domain.ErrVendorNotFound
+	}
+	cur.Name = v.Name
+	cur.Slug = v.Slug
+	return nil
+}
+
 type fakeModelRepo struct {
 	mu     sync.Mutex
 	byKey  map[string]*domain.DeviceModel // "vendorID|model"

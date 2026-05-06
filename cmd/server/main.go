@@ -422,6 +422,8 @@ func run() error {
 			r.Get("/", settingsVendorsH.List)
 			r.Get("/new", settingsVendorsH.NewForm)
 			r.Post("/", settingsVendorsH.Create)
+			r.Get("/{id}/edit", settingsVendorsH.EditForm)
+			r.Post("/{id}", settingsVendorsH.Update)
 		})
 		r.Route("/settings/models", func(r chi.Router) {
 			r.Use(mw.RequirePermission("vendor", "manage"))

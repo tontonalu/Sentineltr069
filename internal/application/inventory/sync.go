@@ -194,6 +194,13 @@ func (s *SyncService) syncDevice(
 		}
 	}
 
+	// Override de chipset vendor: ONTs com SDK Realtek/Broadcom/MediaTek
+	// reportam o chipset como Manufacturer no TR-069 — distorce o vendor
+	// real (V-SOL aparece como "Realtek", etc). Resolvemos pelo OUI quando
+	// o manufacturer é um chipset conhecido. Operador pode estender o
+	// registry em internal/application/inventory/oui_registry.go.
+	manufacturer = resolveManufacturerName(manufacturer, oui)
+
 	fwVersion := genieacs.FirstNonEmpty(d.Raw,
 		"VirtualParameters.SoftwareVersion",
 		"InternetGatewayDevice.DeviceInfo.SoftwareVersion",
