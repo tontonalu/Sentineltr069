@@ -127,7 +127,6 @@ func (h *SettingsModelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	draft := settingspages.ModelDraft{
 		VendorID:    strings.TrimSpace(r.PostFormValue("vendor_id")),
 		Model:       strings.TrimSpace(r.PostFormValue("model")),
-		TRDataModel: strings.TrimSpace(r.PostFormValue("tr_data_model")),
 		Description: strings.TrimSpace(r.PostFormValue("description")),
 	}
 
@@ -136,10 +135,11 @@ func (h *SettingsModelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.renderNewWithError(w, r, draft, "Vendor e modelo são obrigatórios.")
 		return
 	}
-	if draft.TRDataModel != domain.TR098 && draft.TRDataModel != domain.TR181 {
-		h.renderNewWithError(w, r, draft, "TR Data Model inválido.")
-		return
-	}
+	// TR data model é placeholder — será auto-corrigido pelo Probe da
+	// homologação (detectTRDataModel) ou pelo sync de inventário ao
+	// observar a árvore real do CPE. Default tr181 cobre devices modernos
+	// e é o que o GenieACS NBI assume quando não dá pra inferir.
+	draft.TRDataModel = domain.TR181
 
 	m := domain.DeviceModel{
 		VendorID:    vendorID,

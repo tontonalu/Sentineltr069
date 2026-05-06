@@ -115,20 +115,10 @@ templ ModelNewPage(csrfToken string, vendors []domain.Vendor, draft ModelDraft, 
 					<div>
 						<label for="model" class="block text-sm font-medium text-sentinel-700">Modelo</label>
 						<input id="model" type="text" name="model" value={ draft.Model } required class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
+						<p class="mt-1 text-xs text-sentinel-500">
+							TR Data Model (TR-098 / TR-181) é detectado automaticamente na primeira sondagem de homologação ou no sync com o ACS.
+						</p>
 					</div>
-					<fieldset>
-						<legend class="block text-sm font-medium text-sentinel-700">TR Data Model</legend>
-						<div class="mt-2 flex gap-4">
-							<label class="flex items-center gap-2 text-sm">
-								<input type="radio" name="tr_data_model" value={ domain.TR181 } checked?={ draft.TRDataModel == "" || draft.TRDataModel == domain.TR181 }/>
-								TR-181
-							</label>
-							<label class="flex items-center gap-2 text-sm">
-								<input type="radio" name="tr_data_model" value={ domain.TR098 } checked?={ draft.TRDataModel == domain.TR098 }/>
-								TR-098 (legado)
-							</label>
-						</div>
-					</fieldset>
 					<div>
 						<label for="description" class="block text-sm font-medium text-sentinel-700">Descrição (opcional)</label>
 						<input id="description" type="text" name="description" value={ draft.Description } class="mt-1 block w-full rounded-md border border-sentinel-100 px-3 py-2 focus:border-sentinel-500 focus:outline-none"/>
