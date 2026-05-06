@@ -580,6 +580,7 @@ func run() error {
 					r.Post("/sessions/{id}/mappings/{mid}/template", homH.UpdateMappingTemplate)
 					r.Post("/sessions/{id}/mappings/{mid}/test-read", homH.TestRead)
 					r.Post("/sessions/{id}/mappings/{mid}/test-write", homH.TestWrite)
+					r.Post("/sessions/{id}/test-all", homH.TestAll)
 					r.Post("/sessions/{id}/abandon", homH.Abandon)
 					r.With(mw.RequirePermission("homologation", "approve")).
 						Post("/sessions/{id}/complete", homH.Complete)

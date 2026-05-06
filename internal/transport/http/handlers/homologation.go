@@ -350,6 +350,22 @@ func (h *HomologationHandler) TestWrite(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
 }
 
+// TestAll POST /homologation/sessions/{id}/test-all — roda read+write em
+// batch nos mappings pendentes. Atalho para "Testar todos" da UI: evita o
+// operador clicar individualmente em cada read/write antes de finalizar.
+func (h *HomologationHandler) TestAll(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseSessionID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := h.Service.TestAllPending(r.Context(), id); err != nil {
+		logger.FromContext(r.Context()).Error("test all", "err", err)
+		http.Error(w, friendlyHomError(err), http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
+}
+
 // Complete POST /homologation/sessions/{id}/complete — finaliza sessão.
 func (h *HomologationHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseSessionID(w, r)

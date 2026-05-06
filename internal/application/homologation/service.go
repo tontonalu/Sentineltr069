@@ -626,6 +626,131 @@ func (s *Service) RunReadTest(ctx context.Context, mappingID uuid.UUID) (*hom.Ma
 // Visível na UI; serve só para sinalizar que o read passou sem expor o valor.
 const redactedMarker = "(redacted)"
 
+// TestAllResult — resumo do batch test.
+type TestAllResult struct {
+	Tested      int // mappings que rodaram pelo menos read
+	ReadPassed  int
+	ReadFailed  int
+	WritePassed int
+	WriteFailed int
+	WriteSkipped int // is_secret=true → write não roda
+}
+
+// TestAllPending varre todos os mappings da sessão e roda RunReadTest +
+// RunWriteTest naqueles que ainda estão pendentes em alguma das pernas.
+// Pra mappings com read_status=ok já passa direto para o write (não retesta
+// leitura à toa). Mappings completos (read=ok && write∈{ok,skipped}) são
+// pulados.
+//
+// Erros individuais não interrompem o batch — coletamos contadores e
+// devolvemos um resumo. Caller pode renderizar "X/Y mappings prontos".
+//
+// Estratégia de write_value: usa o read_value lido do snapshot com sufixo
+// "_HOM" para strings (mesma heurística do botão write inline). Para
+// numéricos/bool, reescreve o mesmo valor — confirma que SetParameterValues
+// aceita o tipo sem alterar o estado funcional do CPE.
+func (s *Service) TestAllPending(ctx context.Context, sessionID uuid.UUID) (*TestAllResult, error) {
+	sess, err := s.sessions.GetByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !sess.Status.IsActive() {
+		return nil, hom.ErrSessionNotActive
+	}
+	mappings, err := s.mappings.ListBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &TestAllResult{}
+	for _, m := range mappings {
+		// Read: roda só se ainda pendente.
+		if m.ReadStatus == hom.TestPending {
+			updated, err := s.RunReadTest(ctx, m.ID)
+			if err != nil {
+				res.ReadFailed++
+				continue
+			}
+			m = *updated
+		}
+		switch m.ReadStatus {
+		case hom.TestOK:
+			res.ReadPassed++
+		case hom.TestFail:
+			res.ReadFailed++
+		}
+		res.Tested++
+
+		// Write: só faz sentido se read passou. Se já está ok/skipped, pula.
+		if m.ReadStatus != hom.TestOK || m.WriteStatus == hom.TestOK || m.WriteStatus == hom.TestSkipped {
+			if m.WriteStatus == hom.TestOK {
+				res.WritePassed++
+			} else if m.WriteStatus == hom.TestSkipped {
+				res.WriteSkipped++
+			}
+			continue
+		}
+
+		// is_secret força skipped sem bater no CPE — mesma lógica do RunWriteTest.
+		if m.IsSecret {
+			_, _ = s.RunWriteTest(ctx, RunWriteTestInput{MappingID: m.ID})
+			res.WriteSkipped++
+			continue
+		}
+
+		writeVal := computeWriteTestValue(m)
+		updated, err := s.RunWriteTest(ctx, RunWriteTestInput{
+			MappingID:       m.ID,
+			TestValue:       writeVal,
+			RestoreOriginal: true,
+		})
+		if err != nil {
+			res.WriteFailed++
+			continue
+		}
+		switch updated.WriteStatus {
+		case hom.TestOK:
+			res.WritePassed++
+		case hom.TestFail:
+			res.WriteFailed++
+		case hom.TestSkipped:
+			res.WriteSkipped++
+		}
+	}
+	return res, nil
+}
+
+// computeWriteTestValue gera valor de teste seguro: string ganha sufixo
+// "_HOM"; tipos numéricos/bool reescrevem o valor lido (confirma que
+// SetParameterValues aceita o tipo sem alterar funcionalidade).
+func computeWriteTestValue(m hom.Mapping) string {
+	if m.ReadValue == nil {
+		return "test"
+	}
+	rv := *m.ReadValue
+	if m.DataType == tmpl.DataTypeString {
+		return rv + "_HOM"
+	}
+	return rv
+}
+
+// EligibleCount conta quantos dos mappings da sessão estão prontos para
+// entrar no profile gerado (read=ok AND write∈{ok,skipped}). Total é o
+// número de mappings na sessão.
+func (s *Service) EligibleCount(ctx context.Context, sessionID uuid.UUID) (eligible, total int, err error) {
+	mappings, err := s.mappings.ListBySession(ctx, sessionID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, m := range mappings {
+		total++
+		if m.EligibleForProfile() {
+			eligible++
+		}
+	}
+	return
+}
+
 // RunWriteTestInput — payload para teste de escrita.
 type RunWriteTestInput struct {
 	MappingID       uuid.UUID

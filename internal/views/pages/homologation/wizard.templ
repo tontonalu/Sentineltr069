@@ -47,10 +47,13 @@ templ Wizard(in WizardInput) {
 			} else {
 				@wizardActions(in)
 				@diagnosticsPanel(in)
-				<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-					@treePanel(in)
-					@mappingsPanel(in)
-				</div>
+				// Layout vertical: tree panel + mappings panel cada um em
+				// largura total. Lado-a-lado quebra com tabela de muitas
+				// colunas (tr_path TR-069 fácil passa de 80 chars) — operador
+				// teria que rolar duas vezes (página + tabela). Vertical é
+				// mais legível mesmo em monitores 4K.
+				@treePanel(in)
+				@mappingsPanel(in)
 				if in.Session.Status == hom.SessionTesting {
 					@finalizePanel(in)
 				}
@@ -306,46 +309,74 @@ templ keyOptionsForCategory(in WizardInput, rowPath, category string) {
 
 templ mappingsPanel(in WizardInput) {
 	<section class="rounded-lg bg-white p-6 shadow">
-		<h2 class="mb-3 text-lg font-medium text-sentinel-900">Mappings desta sessão</h2>
+		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+			<div class="flex items-baseline gap-3">
+				<h2 class="text-lg font-medium text-sentinel-900">Mappings desta sessão</h2>
+				if len(in.Session.Mappings) > 0 {
+					@mappingCounters(in)
+				}
+			</div>
+			if in.Session.Status.IsActive() && len(in.Session.Mappings) > 0 {
+				<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/test-all") }>
+					<input type="hidden" name="_csrf" value={ in.CSRF }/>
+					<button type="submit" class="btn-secondary text-sm" title="Roda read + write em todos os mappings pendentes (segredos têm write skipped automático).">
+						Testar todos
+					</button>
+				</form>
+			}
+		</div>
 		if len(in.Session.Mappings) == 0 {
 			<p class="text-sm text-sentinel-500">
-				Nenhum mapeamento ainda. Use a árvore ao lado para adicionar paths, ou cadastre manualmente abaixo.
+				Nenhum mapeamento ainda. Use a árvore acima para adicionar paths, ou cadastre manualmente abaixo.
 			</p>
 		} else {
-			<table class="min-w-full divide-y divide-sentinel-100 text-xs">
-				<thead>
-					<tr class="text-left text-sentinel-500">
-						<th class="py-1">canonical_key</th>
-						<th>tr_path</th>
-						<th>value_template</th>
-						<th>tipo</th>
-						<th>read</th>
-						<th>write</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, m := range in.Session.Mappings {
-						<tr class="border-t border-sentinel-100">
-							<td class="py-1 font-mono">{ m.CanonicalKey }</td>
-							<td class="font-mono text-sentinel-700">{ m.TRPath }</td>
-							<td class="py-1">
-								if in.Session.Status.IsActive() {
-									@templateEditForm(in, m)
-								} else {
-									<span class="font-mono text-sentinel-700">{ defaultIfEmpty(m.ValueTemplate, "—") }</span>
-								}
-							</td>
-							<td>{ string(m.DataType) }</td>
-							<td>@testStatusBadge(m.ReadStatus, m.LastError)</td>
-							<td>@testStatusBadge(m.WriteStatus, m.LastError)</td>
-							<td>
-								@mappingRowActions(in, m)
-							</td>
+			// overflow-x-auto + table-fixed + truncate evita extravasar a
+			// tela quando tr_paths são longos (caso comum em TR-098).
+			<div class="overflow-x-auto rounded border border-sentinel-100">
+				<table class="w-full divide-y divide-sentinel-100 text-xs table-fixed">
+					<colgroup>
+						<col class="w-[14rem]"/>
+						<col/>
+						<col class="w-[18rem]"/>
+						<col class="w-[6rem]"/>
+						<col class="w-[4rem]"/>
+						<col class="w-[4rem]"/>
+						<col class="w-[8rem]"/>
+					</colgroup>
+					<thead class="bg-sentinel-50">
+						<tr class="text-left text-sentinel-500">
+							<th class="px-2 py-1">canonical_key</th>
+							<th class="px-2 py-1">tr_path</th>
+							<th class="px-2 py-1">value_template</th>
+							<th class="px-2 py-1">tipo</th>
+							<th class="px-2 py-1">read</th>
+							<th class="px-2 py-1">write</th>
+							<th class="px-2 py-1"></th>
 						</tr>
-					}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						for _, m := range in.Session.Mappings {
+							<tr class="border-t border-sentinel-100 hover:bg-sentinel-50">
+								<td class="px-2 py-1 font-mono truncate" title={ m.CanonicalKey }>{ m.CanonicalKey }</td>
+								<td class="px-2 py-1 font-mono text-sentinel-700 truncate" title={ m.TRPath }>{ m.TRPath }</td>
+								<td class="px-2 py-1">
+									if in.Session.Status.IsActive() {
+										@templateEditForm(in, m)
+									} else {
+										<span class="font-mono text-sentinel-700 truncate" title={ m.ValueTemplate }>{ defaultIfEmpty(m.ValueTemplate, "—") }</span>
+									}
+								</td>
+								<td class="px-2 py-1 text-sentinel-500">{ string(m.DataType) }</td>
+								<td class="px-2 py-1">@testStatusBadge(m.ReadStatus, m.LastError)</td>
+								<td class="px-2 py-1">@testStatusBadge(m.WriteStatus, m.LastError)</td>
+								<td class="px-2 py-1">
+									@mappingRowActions(in, m)
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
 		}
 		if in.Session.Status.IsActive() {
 			<details class="mt-4">
@@ -390,6 +421,30 @@ templ mappingsPanel(in WizardInput) {
 			</details>
 		}
 	</section>
+}
+
+// mappingCounters mostra um resumo "X elegíveis · Y pendentes · Z falharam"
+// pra o operador saber se já pode finalizar. Elegível = read OK e write OK
+// ou skipped (regra do EligibleForProfile no domain).
+templ mappingCounters(in WizardInput) {
+	{{ eligible, pending, failed := computeMappingStats(in.Session.Mappings) }}
+	{{ total := len(in.Session.Mappings) }}
+	<span class="inline-flex flex-wrap items-center gap-2 text-xs">
+		<span class="rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800" title="Mappings com read OK e write OK/skipped — entram no profile.">
+			{ formatCount(eligible) } elegíveis
+		</span>
+		if pending > 0 {
+			<span class="rounded bg-sentinel-100 px-2 py-0.5 text-sentinel-700" title="Read ou write ainda pendente — clique 'Testar todos' ou rode individualmente.">
+				{ formatCount(pending) } pendentes
+			</span>
+		}
+		if failed > 0 {
+			<span class="rounded bg-red-50 px-2 py-0.5 font-medium text-red-700" title="Read ou write falhou — operador precisa investigar antes de finalizar.">
+				{ formatCount(failed) } falharam
+			</span>
+		}
+		<span class="text-sentinel-400">/ { formatCount(total) } total</span>
+	</span>
 }
 
 // templateEditForm: input inline pra editar value_template sem ir pra outra
@@ -439,11 +494,29 @@ templ testStatusBadge(s hom.TestStatus, lastErr *string) {
 }
 
 templ finalizePanel(in WizardInput) {
+	{{ eligible, pending, failed := computeMappingStats(in.Session.Mappings) }}
 	<section class="rounded-lg bg-white p-6 shadow">
-		<h2 class="mb-2 text-lg font-medium text-sentinel-900">Finalizar homologação</h2>
+		<div class="mb-3 flex items-center justify-between gap-3">
+			<h2 class="text-lg font-medium text-sentinel-900">Finalizar homologação</h2>
+			@mappingCounters(in)
+		</div>
 		<p class="text-sm text-sentinel-500 mb-3">
 			Apenas mappings com leitura OK e escrita (OK ou skipped por is_secret) entrarão no profile.
 		</p>
+		if eligible == 0 {
+			<div class="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+				<strong>Nenhum mapping pronto.</strong>
+				if pending > 0 {
+					Clique no botão <em>Testar todos</em> acima para rodar read+write em batch
+					nos { formatCount(pending) } mappings pendentes.
+				} else if failed > 0 {
+					Os { formatCount(failed) } mappings falharam — verifique o tr_path
+					(pode estar com instância errada, ex.: <code>.1.</code> vs <code>.2.</code>) ou o data_type.
+				} else {
+					Adicione mapeamentos a partir da árvore TR-069 acima.
+				}
+			</div>
+		}
 		<form method="POST" action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/complete") } class="grid grid-cols-1 gap-2">
 			<input type="hidden" name="_csrf" value={ in.CSRF }/>
 			<label>
@@ -541,6 +614,28 @@ func optString(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// computeMappingStats classifica cada mapping em uma das três categorias:
+//   - eligible: read OK + write (OK ou skipped) → entra no profile
+//   - pending: read ou write em pending → operador precisa testar
+//   - failed: read OR write em fail → precisa investigar
+func computeMappingStats(mappings []hom.Mapping) (eligible, pending, failed int) {
+	for _, m := range mappings {
+		switch {
+		case m.EligibleForProfile():
+			eligible++
+		case m.ReadStatus == hom.TestFail || m.WriteStatus == hom.TestFail:
+			failed++
+		default:
+			pending++
+		}
+	}
+	return
+}
+
+func formatCount(n int) string {
+	return fmt.Sprintf("%d", n)
 }
 
 func entriesLabel(n int) string {
