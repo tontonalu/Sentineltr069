@@ -47,11 +47,11 @@ type GenieACSPort interface {
 }
 
 // probeWaitTimeout é o teto que o Probe espera os refreshObject completarem.
-// Cada CPE varia: alguns respondem em 5-10s, ONTs com firmware lento podem
-// levar 30-50s. Um teto de 60s cobre 95% dos casos sem deixar o operador
-// preso. Após o teto, seguimos pra GetDevice com o que houver no NBI —
-// melhor árvore parcial do que tela travada.
-const probeWaitTimeout = 60 * time.Second
+// 30s cobre a maioria dos CPEs (5-15s típico). Operador prefere tela curta
+// + diagnóstico do que árvore "perfeita". Se o snapshot vier raso, o
+// painel de diagnóstico mostra os faults — caller decide se aciona uma
+// sondagem profunda manual.
+const probeWaitTimeout = 30 * time.Second
 
 // probeBranches são os ramos top-level que o Probe pede refresh. Cobrimos
 // TR-098 e TR-181 simultaneamente — CPEs respondem só os que conhecem;
@@ -203,28 +203,23 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 
 	log := logger.FromContext(ctx)
 
-	// Pass 1 — refresh largo: emite refreshObject para os ramos top-level
-	// dos dois data models. Em CPEs que suportam GetParameterNames recursivo,
-	// isso traz a árvore inteira. ONTs com TR-069 minimalista (Vsol,
-	// FiberHome, alguns ZTE) retornam fault — daí a Pass 2 abaixo.
+	// Refresh largo: emite refreshObject para os ramos top-level dos dois
+	// data models em paralelo no NBI, espera concluírem (~5-15s típico),
+	// depois GetDevice.
+	//
+	// Targeted fetch (getParameterValues por hint path) NÃO faz parte do
+	// Probe síncrono — emitir 70+ tasks com connection_request por uma só
+	// passada engasga o CPE e o operador trava 2+ minutos esperando. Se
+	// um CPE específico precisar disso (Vsol, FiberHome restritos), expor
+	// como ação separada "sondagem profunda" controlada pelo operador.
 	refreshIDs := s.issueWideRefresh(ctx, d.GenieACSID)
 	log.Info("homologation probe: refresh tasks issued",
 		"device", d.GenieACSID, "count", len(refreshIDs))
 	s.waitForTasks(ctx, refreshIDs, probeWaitTimeout)
 
-	// Pass 2 — targeted fetch: emite getParameterValues para os hint paths
-	// do catálogo em batches pequenos. CWMP fault 9005 (parâmetro inválido)
-	// derruba a batch inteira, então usamos batches de 1 path — cada falha
-	// é isolada. Mais lento mas garante que paths específicos populem o NBI
-	// mesmo em CPEs que ignoram refreshObject.
-	fetchIDs := s.issueTargetedFetches(ctx, d.GenieACSID)
-	log.Info("homologation probe: targeted fetch tasks issued",
-		"device", d.GenieACSID, "count", len(fetchIDs))
-	s.waitForTasks(ctx, fetchIDs, probeWaitTimeout)
-
-	// Faults do NBI ajudam a diagnosticar quando a árvore vem rasa: cada
-	// fault corresponde a uma RPC que o CPE rejeitou (path inexistente,
-	// timeout, etc). Logamos para debug — não é fatal.
+	// Faults do NBI ajudam a diagnosticar árvore rasa: cada fault é uma
+	// RPC que o CPE rejeitou (path inexistente, timeout). Logamos pra
+	// debug — também aparecem no painel de diagnóstico do wizard.
 	if faults, err := s.genieacs.GetFaults(ctx, d.GenieACSID); err == nil && len(faults) > 0 {
 		log.Warn("homologation probe: device has GenieACS faults",
 			"device", d.GenieACSID, "fault_count", len(faults))
@@ -234,8 +229,7 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 		}
 	}
 
-	// Lê snapshot atual. Pass 1+Pass 2 idealmente populou o cache; aqui só
-	// linearizamos pra persistência.
+	// Lê snapshot atual.
 	dev, err := s.genieacs.GetDevice(ctx, d.GenieACSID)
 	if err != nil {
 		return nil, fmt.Errorf("homologation: GetDevice: %w", err)
@@ -277,40 +271,6 @@ func (s *Service) issueWideRefresh(ctx context.Context, deviceID string) []genie
 	out := make([]genieacs.TaskID, 0, len(probeBranches))
 	for _, br := range probeBranches {
 		if tid, err := s.genieacs.Refresh(ctx, deviceID, br); err == nil && tid != "" {
-			out = append(out, tid)
-		}
-	}
-	return out
-}
-
-// issueTargetedFetches percorre o catálogo de canonical_keys, deduplicando
-// hint paths (TR-098 + TR-181), e dispara um getParameterValues por path.
-// Cada task isola sua falha — CPEs que retornam Fault 9005 (path inexistente)
-// para um path não derrubam os demais.
-//
-// Usado como Pass 2 do Probe quando refreshObject sozinho não bastou
-// (alguns ONTs/ZTEs respondem GetParameterValues mas falham no
-// GetParameterNames recursivo que o refreshObject usa internamente).
-func (s *Service) issueTargetedFetches(ctx context.Context, deviceID string) []genieacs.TaskID {
-	keys, err := s.canonical.List(ctx, "")
-	if err != nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	out := make([]genieacs.TaskID, 0, 64)
-	for _, k := range keys {
-		hints := append([]string{}, k.HintPathsTR098...)
-		hints = append(hints, k.HintPathsTR181...)
-		for _, h := range hints {
-			h = strings.TrimSpace(h)
-			if h == "" || seen[h] {
-				continue
-			}
-			seen[h] = true
-			tid, err := s.genieacs.GetParameterValues(ctx, deviceID, []string{h})
-			if err != nil || tid == "" {
-				continue
-			}
 			out = append(out, tid)
 		}
 	}
