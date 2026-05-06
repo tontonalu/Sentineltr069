@@ -27,6 +27,7 @@ import (
 	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
+	"github.com/celinet/sentinel-acs/internal/platform/logger"
 )
 
 // GenieACSPort é a fatia mínima do cliente GenieACS que o service consome.
@@ -40,6 +41,9 @@ type GenieACSPort interface {
 	// o NBI a remove e o client retorna ErrTaskNotFound — usamos isso como
 	// sinal de "done" no Probe largo.
 	GetTask(ctx context.Context, taskID string) (*genieacs.Task, error)
+	// GetFaults lista falhas que o NBI registrou para o device — útil pra
+	// diagnosticar quando refreshObject/getParameterValues retornam vazio.
+	GetFaults(ctx context.Context, deviceID string) ([]genieacs.Fault, error)
 }
 
 // probeWaitTimeout é o teto que o Probe espera os refreshObject completarem.
@@ -197,17 +201,41 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 		}
 	}()
 
-	// Refresh largo: emite refreshObject para os ramos top-level dos dois
-	// data models. Inform mínimo de muitos ONTs traz só DeviceInfo + a WAN
-	// ativa — sem refresh explícito da WLAN/LAN/Services o NBI não tem como
-	// devolvê-los. Ao emitir vários, cada CPE responde os que conhece e
-	// ignora o resto. ErrTaskNotFound é usado como sinal de "task done".
-	taskIDs := s.issueWideRefresh(ctx, d.GenieACSID)
-	s.waitForTasks(ctx, taskIDs, probeWaitTimeout)
+	log := logger.FromContext(ctx)
 
-	// Lê snapshot atual. Se o refresh teve sucesso parcial (algumas tasks
-	// ainda pendentes pelo timeout), o NBI já pode ter persistido as que
-	// retornaram — a árvore vem com o que estiver disponível.
+	// Pass 1 — refresh largo: emite refreshObject para os ramos top-level
+	// dos dois data models. Em CPEs que suportam GetParameterNames recursivo,
+	// isso traz a árvore inteira. ONTs com TR-069 minimalista (Vsol,
+	// FiberHome, alguns ZTE) retornam fault — daí a Pass 2 abaixo.
+	refreshIDs := s.issueWideRefresh(ctx, d.GenieACSID)
+	log.Info("homologation probe: refresh tasks issued",
+		"device", d.GenieACSID, "count", len(refreshIDs))
+	s.waitForTasks(ctx, refreshIDs, probeWaitTimeout)
+
+	// Pass 2 — targeted fetch: emite getParameterValues para os hint paths
+	// do catálogo em batches pequenos. CWMP fault 9005 (parâmetro inválido)
+	// derruba a batch inteira, então usamos batches de 1 path — cada falha
+	// é isolada. Mais lento mas garante que paths específicos populem o NBI
+	// mesmo em CPEs que ignoram refreshObject.
+	fetchIDs := s.issueTargetedFetches(ctx, d.GenieACSID)
+	log.Info("homologation probe: targeted fetch tasks issued",
+		"device", d.GenieACSID, "count", len(fetchIDs))
+	s.waitForTasks(ctx, fetchIDs, probeWaitTimeout)
+
+	// Faults do NBI ajudam a diagnosticar quando a árvore vem rasa: cada
+	// fault corresponde a uma RPC que o CPE rejeitou (path inexistente,
+	// timeout, etc). Logamos para debug — não é fatal.
+	if faults, err := s.genieacs.GetFaults(ctx, d.GenieACSID); err == nil && len(faults) > 0 {
+		log.Warn("homologation probe: device has GenieACS faults",
+			"device", d.GenieACSID, "fault_count", len(faults))
+		for _, f := range faults {
+			log.Info("homologation probe fault",
+				"code", f.Code, "string", f.String, "path", f.Path)
+		}
+	}
+
+	// Lê snapshot atual. Pass 1+Pass 2 idealmente populou o cache; aqui só
+	// linearizamos pra persistência.
 	dev, err := s.genieacs.GetDevice(ctx, d.GenieACSID)
 	if err != nil {
 		return nil, fmt.Errorf("homologation: GetDevice: %w", err)
@@ -249,6 +277,40 @@ func (s *Service) issueWideRefresh(ctx context.Context, deviceID string) []genie
 	out := make([]genieacs.TaskID, 0, len(probeBranches))
 	for _, br := range probeBranches {
 		if tid, err := s.genieacs.Refresh(ctx, deviceID, br); err == nil && tid != "" {
+			out = append(out, tid)
+		}
+	}
+	return out
+}
+
+// issueTargetedFetches percorre o catálogo de canonical_keys, deduplicando
+// hint paths (TR-098 + TR-181), e dispara um getParameterValues por path.
+// Cada task isola sua falha — CPEs que retornam Fault 9005 (path inexistente)
+// para um path não derrubam os demais.
+//
+// Usado como Pass 2 do Probe quando refreshObject sozinho não bastou
+// (alguns ONTs/ZTEs respondem GetParameterValues mas falham no
+// GetParameterNames recursivo que o refreshObject usa internamente).
+func (s *Service) issueTargetedFetches(ctx context.Context, deviceID string) []genieacs.TaskID {
+	keys, err := s.canonical.List(ctx, "")
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]genieacs.TaskID, 0, 64)
+	for _, k := range keys {
+		hints := append([]string{}, k.HintPathsTR098...)
+		hints = append(hints, k.HintPathsTR181...)
+		for _, h := range hints {
+			h = strings.TrimSpace(h)
+			if h == "" || seen[h] {
+				continue
+			}
+			seen[h] = true
+			tid, err := s.genieacs.GetParameterValues(ctx, deviceID, []string{h})
+			if err != nil || tid == "" {
+				continue
+			}
 			out = append(out, tid)
 		}
 	}
@@ -335,6 +397,38 @@ func (s *Service) BrowseTree(ctx context.Context, sessionID uuid.UUID, prefix, s
 	}
 	entries := genieacs.FlattenTree(raw)
 	return genieacs.FilterTree(entries, prefix, search), nil
+}
+
+// SnapshotStats devolve métricas do snapshot atual da sessão para a UI:
+// total de leaves descobertas e faults pendentes no NBI. Útil quando o
+// operador precisa entender por que a árvore veio rasa.
+type SnapshotStats struct {
+	TotalEntries int
+	Faults       []genieacs.Fault
+}
+
+// SnapshotStats produz métricas do tree_snapshot da sessão. Sem snapshot,
+// devolve contadores zerados (não é erro). Faults vêm direto do NBI — se o
+// upstream estiver fora, devolvemos só o count e seguimos.
+func (s *Service) SnapshotStats(ctx context.Context, sessionID uuid.UUID) (*SnapshotStats, error) {
+	sess, err := s.sessions.GetByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	out := &SnapshotStats{}
+	if len(sess.TreeSnapshot) > 0 {
+		var raw map[string]any
+		if err := json.Unmarshal(sess.TreeSnapshot, &raw); err == nil {
+			out.TotalEntries = len(genieacs.FlattenTree(raw))
+		}
+	}
+	d, err := s.devices.GetByID(ctx, sess.LabDeviceID)
+	if err == nil {
+		if faults, err := s.genieacs.GetFaults(ctx, d.GenieACSID); err == nil {
+			out.Faults = faults
+		}
+	}
+	return out, nil
 }
 
 // ──────────────── Mappings ────────────────

@@ -138,6 +138,13 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 			observedPaths = append(observedPaths, e.Path)
 		}
 		in.SuggestedKeyByPath = buildSuggestedKeyByPath(keys, in.Model, observedPaths)
+
+		// Diagnóstico: contagem total de leaves + faults do NBI. Quando o
+		// CPE responde minimamente, mostra um aviso "árvore rasa" no painel
+		// de diagnóstico para o operador entender o que aconteceu.
+		if stats, err := h.Service.SnapshotStats(r.Context(), id); err == nil {
+			in.Stats = stats
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

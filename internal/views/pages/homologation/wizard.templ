@@ -3,6 +3,7 @@ package homologation
 import (
 	"fmt"
 
+	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
@@ -25,7 +26,11 @@ type WizardInput struct {
 	Tree       []genieacs.TreeEntry
 	TreePrefix string
 	TreeSearch string
-	CSRF       string
+	// Stats: contagem total de leaves no snapshot + faults do NBI. Mostra
+	// no painel de diagnóstico para o operador entender por que a árvore
+	// veio rasa (CPE rejeitando GetParameterNames, etc).
+	Stats *homapp.SnapshotStats
+	CSRF  string
 }
 
 templ Wizard(in WizardInput) {
@@ -33,6 +38,7 @@ templ Wizard(in WizardInput) {
 		<div class="space-y-6">
 			@wizardHeader(in)
 			@wizardActions(in)
+			@diagnosticsPanel(in)
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 				@treePanel(in)
 				@mappingsPanel(in)
@@ -108,6 +114,47 @@ templ wizardActions(in WizardInput) {
 			⚠ Este device pode receber escritas reais. Use apenas com CPEs de teste.
 		</p>
 	</section>
+}
+
+// diagnosticsPanel mostra contagem de parâmetros no snapshot + faults
+// reportados pelo NBI. Crítico quando a árvore vem rasa: o operador vê de
+// imediato se o CPE está rejeitando os refresh/get tasks e o que está
+// faltando — em vez de ter que abrir logs do servidor.
+templ diagnosticsPanel(in WizardInput) {
+	if in.Stats != nil && (in.Stats.TotalEntries > 0 || len(in.Stats.Faults) > 0) {
+		<section class="rounded-lg bg-white p-4 shadow text-sm">
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<span class="text-sentinel-500">Snapshot:</span>
+					<strong class="text-sentinel-900">{ entriesLabel(in.Stats.TotalEntries) }</strong>
+					if in.Stats.TotalEntries < 30 && in.Stats.TotalEntries > 0 {
+						<span class="rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
+							árvore rasa — CPE pode estar rejeitando GetParameterNames
+						</span>
+					}
+				</div>
+				if len(in.Stats.Faults) > 0 {
+					<span class="text-xs text-red-700">{ faultLabel(len(in.Stats.Faults)) } no NBI</span>
+				}
+			</div>
+			if len(in.Stats.Faults) > 0 {
+				<details class="mt-2">
+					<summary class="cursor-pointer text-xs text-blue-600">ver faults</summary>
+					<ul class="mt-2 space-y-1 max-h-48 overflow-y-auto text-xs font-mono">
+						for _, f := range in.Stats.Faults {
+							<li class="border-l-2 border-red-300 pl-2">
+								<span class="text-red-700">{ f.Code }</span>
+								<span class="text-sentinel-700"> { f.String }</span>
+								if f.Path != "" {
+									<div class="text-sentinel-500">↳ { f.Path }</div>
+								}
+							</li>
+						}
+					</ul>
+				</details>
+			}
+		</section>
+	}
 }
 
 templ treePanel(in WizardInput) {
@@ -424,6 +471,13 @@ func entriesLabel(n int) string {
 		return "1 entrada"
 	}
 	return fmt.Sprintf("%d entradas", n)
+}
+
+func faultLabel(n int) string {
+	if n == 1 {
+		return "1 fault"
+	}
+	return fmt.Sprintf("%d faults", n)
 }
 
 // writeTestValue gera um valor de teste seguro a partir do valor lido — string

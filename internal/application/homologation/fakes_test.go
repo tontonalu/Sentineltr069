@@ -542,6 +542,11 @@ func (g *fakeGenie) GetTask(_ context.Context, _ string) (*genieacs.Task, error)
 	return nil, genieacs.ErrTaskNotFound
 }
 
+// GetFaults devolve lista vazia no fake — testes não simulam faults do CPE.
+func (g *fakeGenie) GetFaults(_ context.Context, _ string) ([]genieacs.Fault, error) {
+	return nil, nil
+}
+
 func (g *fakeGenie) GetParameterValues(_ context.Context, _ string, _ []string) (genieacs.TaskID, error) {
 	return "task-get", nil
 }
