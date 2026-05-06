@@ -37,17 +37,58 @@ templ Wizard(in WizardInput) {
 	@layouts.Base("Wizard de homologação") {
 		<div class="space-y-6">
 			@wizardHeader(in)
-			@wizardActions(in)
-			@diagnosticsPanel(in)
-			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-				@treePanel(in)
-				@mappingsPanel(in)
-			</div>
-			if in.Session.Status == hom.SessionTesting {
-				@finalizePanel(in)
+			if in.Session.Status == hom.SessionProbing {
+				@probingState(in)
+			} else {
+				@wizardActions(in)
+				@diagnosticsPanel(in)
+				<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+					@treePanel(in)
+					@mappingsPanel(in)
+				</div>
+				if in.Session.Status == hom.SessionTesting {
+					@finalizePanel(in)
+				}
 			}
 		</div>
 	}
+}
+
+// probingState é a tela mostrada enquanto a goroutine de probe está rodando.
+// Auto-recarrega via JS — quando o status sai de probing (probe terminou), o
+// próximo render entra no fluxo normal e mostra a árvore. 8s é suficiente
+// pra sentir progresso sem dar flicker.
+templ probingState(in WizardInput) {
+	<section class="rounded-lg bg-white p-8 shadow text-center">
+		<div class="flex flex-col items-center gap-4">
+			<div class="h-12 w-12 animate-spin rounded-full border-4 border-sentinel-200 border-t-sentinel-600"></div>
+			<h2 class="text-lg font-medium text-sentinel-900">Sondando árvore TR-069…</h2>
+			<p class="max-w-md text-sm text-sentinel-500">
+				O probe roda em duas fases: refresh largo (~30s) e fetch direcionado de cada
+				canonical_key do catálogo (~2 min em ONTs com TR-069 minimalista). Esta
+				página atualiza sozinha quando o snapshot ficar pronto.
+			</p>
+			<p class="text-xs text-sentinel-400">
+				Você pode fechar a aba — o probe continua no servidor. Volte em alguns
+				minutos e o resultado vai estar aqui.
+			</p>
+			<form
+				method="POST"
+				action={ templ.URL("/homologation/sessions/" + in.Session.ID.String() + "/abandon") }
+				onsubmit="return confirm('Abandonar esta sessão? Cancela o probe em andamento.');"
+				class="mt-2"
+			>
+				<input type="hidden" name="_csrf" value={ in.CSRF }/>
+				<button type="submit" class="btn-ghost text-red-600 text-xs">Abandonar sessão</button>
+			</form>
+		</div>
+		<script>
+			// Recarrega em 8s para checar se o probe já terminou. setTimeout
+			// (não setInterval) garante uma única chamada por render — se
+			// a página continuar em probing, o próximo render reagenda.
+			setTimeout(function(){ window.location.reload(); }, 8000);
+		</script>
+	</section>
 }
 
 templ wizardHeader(in WizardInput) {

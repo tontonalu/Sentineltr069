@@ -46,12 +46,18 @@ type GenieACSPort interface {
 	GetFaults(ctx context.Context, deviceID string) ([]genieacs.Fault, error)
 }
 
-// probeWaitTimeout é o teto que o Probe espera os refreshObject completarem.
-// 30s cobre a maioria dos CPEs (5-15s típico). Operador prefere tela curta
-// + diagnóstico do que árvore "perfeita". Se o snapshot vier raso, o
-// painel de diagnóstico mostra os faults — caller decide se aciona uma
-// sondagem profunda manual.
-const probeWaitTimeout = 30 * time.Second
+// probeWaitTimeoutPass1 é o teto do refresh largo: refreshObject por ramo
+// top-level. Em CPEs cooperativos isso já basta; em ONTs minimalistas (Vsol,
+// FiberHome) os tasks faultam rápido e a Pass 2 supre via getParameterValues
+// direto. Como o Probe roda em goroutine no handler, o timeout só limita
+// a espera do snapshot — não bloqueia o operador.
+const probeWaitTimeoutPass1 = 60 * time.Second
+
+// probeWaitTimeoutPass2 é o teto da Pass 2 (targeted fetch). Cada hint vira
+// um task individual com connection_request, então o tempo total varia com
+// o número de hints e a latência do CPE. 180s cobre o catálogo completo
+// (~80 hints × 2s típico) com folga.
+const probeWaitTimeoutPass2 = 180 * time.Second
 
 // probeBranches são os ramos top-level que o Probe pede refresh. Cobrimos
 // TR-098 e TR-181 simultaneamente — CPEs respondem só os que conhecem;
@@ -157,6 +163,32 @@ func (s *Service) GetSession(ctx context.Context, id uuid.UUID) (*hom.Session, e
 
 // ──────────────── Probe ────────────────
 
+// MarkProbing transiciona a sessão para `probing` em uma operação síncrona
+// e curta — só mexe no DB. Usado pelo handler HTTP antes de disparar o Probe
+// real numa goroutine: dessa forma a UI já reflete o estado "sondando" no
+// próximo render, mesmo que a goroutine ainda não tenha começado.
+//
+// Idempotente: chamar duas vezes não erra.
+//
+// Erros de validação propagados:
+//   - ErrSessionNotActive  — sessão completed/abandoned
+//   - ErrDeviceNotLab      — device não está marcado como lab
+//   - ErrSessionMissingTree (não emitido aqui, só pelo Probe real)
+func (s *Service) MarkProbing(ctx context.Context, sessionID uuid.UUID) error {
+	sess, err := s.sessions.GetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if sess.Status == hom.SessionCompleted || sess.Status == hom.SessionAbandoned {
+		return hom.ErrSessionNotActive
+	}
+	if sess.Status == hom.SessionProbing {
+		return nil
+	}
+	return s.sessions.UpdateStatus(ctx, sessionID, hom.SessionProbing)
+}
+
+
 // Probe pede ao GenieACS para revalidar a árvore inteira do device de lab e
 // guarda o snapshot em tree_snapshot. Versão Day 2: chama Refresh fire-and-forget,
 // depois lê o estado mais recente conhecido via GetDevice — não bloqueia
@@ -203,19 +235,24 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 
 	log := logger.FromContext(ctx)
 
-	// Refresh largo: emite refreshObject para os ramos top-level dos dois
-	// data models em paralelo no NBI, espera concluírem (~5-15s típico),
-	// depois GetDevice.
-	//
-	// Targeted fetch (getParameterValues por hint path) NÃO faz parte do
-	// Probe síncrono — emitir 70+ tasks com connection_request por uma só
-	// passada engasga o CPE e o operador trava 2+ minutos esperando. Se
-	// um CPE específico precisar disso (Vsol, FiberHome restritos), expor
-	// como ação separada "sondagem profunda" controlada pelo operador.
+	// Pass 1 — refresh largo: emite refreshObject para os ramos top-level
+	// dos dois data models. Em CPEs cooperativos traz a árvore inteira em
+	// 5-15s. Em ONTs minimalistas (Vsol, FiberHome) muitas tasks faultam,
+	// daí a necessidade da Pass 2 abaixo.
 	refreshIDs := s.issueWideRefresh(ctx, d.GenieACSID)
 	log.Info("homologation probe: refresh tasks issued",
 		"device", d.GenieACSID, "count", len(refreshIDs))
-	s.waitForTasks(ctx, refreshIDs, probeWaitTimeout)
+	s.waitForTasks(ctx, refreshIDs, probeWaitTimeoutPass1)
+
+	// Pass 2 — targeted fetch: getParameterValues por hint path do catálogo,
+	// 1 task por path (Fault 9005 isolado por task). Demora minutos pra
+	// ~80 paths, mas como o Probe roda em goroutine via handler, o operador
+	// não fica bloqueado. Resultado: árvore completa (800+ entradas em ONT
+	// típico Vsol) com todas as canonical_keys pré-mapeáveis.
+	fetchIDs := s.issueTargetedFetches(ctx, d.GenieACSID)
+	log.Info("homologation probe: targeted fetch tasks issued",
+		"device", d.GenieACSID, "count", len(fetchIDs))
+	s.waitForTasks(ctx, fetchIDs, probeWaitTimeoutPass2)
 
 	// Faults do NBI ajudam a diagnosticar árvore rasa: cada fault é uma
 	// RPC que o CPE rejeitou (path inexistente, timeout). Logamos pra
@@ -261,6 +298,40 @@ func (s *Service) Probe(ctx context.Context, sessionID uuid.UUID) (*hom.Session,
 	}
 	probeOK = true
 	return s.GetSession(ctx, sessionID)
+}
+
+// issueTargetedFetches percorre o catálogo de canonical_keys, deduplicando
+// hint paths (TR-098 + TR-181), e dispara um getParameterValues por path.
+// Cada task isola sua falha — CPEs que retornam Fault 9005 (path inexistente)
+// para um path não derrubam os demais.
+//
+// Demora porque cada task vai com connection_request: 80 hints × 1-3s =
+// 80-240s. Como Probe roda em goroutine no handler, o operador não fica
+// bloqueado — a UI mostra estado "probing" com auto-refresh.
+func (s *Service) issueTargetedFetches(ctx context.Context, deviceID string) []genieacs.TaskID {
+	keys, err := s.canonical.List(ctx, "")
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]genieacs.TaskID, 0, 128)
+	for _, k := range keys {
+		hints := append([]string{}, k.HintPathsTR098...)
+		hints = append(hints, k.HintPathsTR181...)
+		for _, h := range hints {
+			h = strings.TrimSpace(h)
+			if h == "" || seen[h] {
+				continue
+			}
+			seen[h] = true
+			tid, err := s.genieacs.GetParameterValues(ctx, deviceID, []string{h})
+			if err != nil || tid == "" {
+				continue
+			}
+			out = append(out, tid)
+		}
+	}
+	return out
 }
 
 // issueWideRefresh dispara um refreshObject para cada ramo top-level conhecido

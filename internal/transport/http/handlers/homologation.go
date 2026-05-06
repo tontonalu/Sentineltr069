@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -151,17 +153,43 @@ func (h *HomologationHandler) Wizard(w http.ResponseWriter, r *http.Request) {
 	_ = hompages.Wizard(in).Render(r.Context(), w)
 }
 
-// Probe POST /homologation/sessions/{id}/probe — sonda árvore.
+// Probe POST /homologation/sessions/{id}/probe — dispara sondagem assíncrona.
+//
+// Pass 1 + Pass 2 levam até ~4 minutos em ONTs minimalistas (Vsol, FiberHome)
+// porque Pass 2 emite ~80 tasks getParameterValues via TR-069 — bloquear o
+// HTTP request por isso falha em proxies/timeouts e dá péssima UX.
+//
+// Fluxo assíncrono:
+//  1. MarkProbing (sync, <50ms): seta status=probing no DB.
+//  2. Goroutine roda Probe completo com context.Background — não morre se o
+//     operador fechar a página. Logger é propagado via NewContext.
+//  3. Redirect imediato — o wizard renderiza estado "probing" com auto-refresh
+//     a cada 8s. Quando o snapshot fica pronto, status vira "testing" e a
+//     árvore aparece no próximo refresh.
 func (h *HomologationHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseSessionID(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.Service.Probe(r.Context(), id); err != nil {
-		logger.FromContext(r.Context()).Error("probe", "err", err)
-		http.Error(w, friendlyHomError(err), http.StatusBadGateway)
+	if err := h.Service.MarkProbing(r.Context(), id); err != nil {
+		logger.FromContext(r.Context()).Error("mark probing", "err", err)
+		http.Error(w, friendlyHomError(err), http.StatusUnprocessableEntity)
 		return
 	}
+	// Logger sobrevive à goroutine; ctx do request seria cancelado quando o
+	// redirect retorna e o request fecha — usamos Background para não matar
+	// o probe no meio.
+	parentLog := logger.FromContext(r.Context())
+	go func() {
+		bgCtx, cancel := context.WithTimeout(
+			logger.WithLogger(context.Background(), parentLog),
+			5*time.Minute,
+		)
+		defer cancel()
+		if _, err := h.Service.Probe(bgCtx, id); err != nil {
+			parentLog.Error("async probe failed", "session", id, "err", err)
+		}
+	}()
 	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
 }
 
