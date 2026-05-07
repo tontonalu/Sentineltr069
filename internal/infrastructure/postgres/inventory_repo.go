@@ -377,10 +377,10 @@ func (r *DeviceRepo) Upsert(ctx context.Context, d *inventory.Device) error {
 	const q = `
 		INSERT INTO devices (
 		    id, genieacs_id, serial_number, mac, oui, model_id, customer_id, pop_id,
-		    status, firmware_version, ip_wan, last_inform_at, last_boot_at, tags
+		    status, firmware_version, ip_wan, pppoe_login, last_inform_at, last_boot_at, tags
 		) VALUES (
 		    COALESCE($1, gen_random_uuid()), $2, NULLIF($3,''), NULLIF($4,''), NULLIF($5,''),
-		    $6, $7, $8, $9, NULLIF($10,''), $11, $12, $13, $14
+		    $6, $7, $8, $9, NULLIF($10,''), $11, NULLIF($12,''), $13, $14, $15
 		)
 		ON CONFLICT (genieacs_id) DO UPDATE SET
 		    serial_number    = EXCLUDED.serial_number,
@@ -392,6 +392,7 @@ func (r *DeviceRepo) Upsert(ctx context.Context, d *inventory.Device) error {
 		    status           = EXCLUDED.status,
 		    firmware_version = EXCLUDED.firmware_version,
 		    ip_wan           = EXCLUDED.ip_wan,
+		    pppoe_login      = EXCLUDED.pppoe_login,
 		    last_inform_at   = EXCLUDED.last_inform_at,
 		    last_boot_at     = EXCLUDED.last_boot_at,
 		    tags             = EXCLUDED.tags
@@ -417,7 +418,7 @@ func (r *DeviceRepo) Upsert(ctx context.Context, d *inventory.Device) error {
 	return r.pool.QueryRow(ctx, q,
 		idArg, d.GenieACSID, d.SerialNumber, d.MAC, d.OUI,
 		d.ModelID, d.CustomerID, d.POPID, d.Status, d.FirmwareVersion,
-		ipArg, d.LastInformAt, d.LastBootAt, tags,
+		ipArg, d.PPPoELogin, d.LastInformAt, d.LastBootAt, tags,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
@@ -432,7 +433,7 @@ func (r *DeviceRepo) GetByGenieACSID(ctx context.Context, genieacsID string) (*i
 const deviceColumns = `
 	id, genieacs_id, COALESCE(serial_number,''), COALESCE(mac,''), COALESCE(oui,''),
 	model_id, customer_id, pop_id, status, COALESCE(firmware_version,''),
-	host(ip_wan), last_inform_at, last_boot_at, tags, is_homologation_lab,
+	host(ip_wan), COALESCE(pppoe_login,''), last_inform_at, last_boot_at, tags, is_homologation_lab,
 	created_at, updated_at`
 
 func (r *DeviceRepo) scanOne(ctx context.Context, where string, args ...any) (*inventory.Device, error) {
@@ -442,7 +443,7 @@ func (r *DeviceRepo) scanOne(ctx context.Context, where string, args ...any) (*i
 	err := r.pool.QueryRow(ctx, q, args...).Scan(
 		&d.ID, &d.GenieACSID, &d.SerialNumber, &d.MAC, &d.OUI,
 		&d.ModelID, &d.CustomerID, &d.POPID, &d.Status, &d.FirmwareVersion,
-		&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
+		&ipStr, &d.PPPoELogin, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
 		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -519,7 +520,7 @@ func (r *DeviceRepo) List(ctx context.Context, f inventory.DeviceFilter, p inven
 		if err := rows.Scan(
 			&d.ID, &d.GenieACSID, &d.SerialNumber, &d.MAC, &d.OUI,
 			&d.ModelID, &d.CustomerID, &d.POPID, &d.Status, &d.FirmwareVersion,
-			&ipStr, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
+			&ipStr, &d.PPPoELogin, &d.LastInformAt, &d.LastBootAt, &d.Tags, &d.IsHomologationLab,
 			&d.CreatedAt, &d.UpdatedAt, &total,
 		); err != nil {
 			return nil, 0, err

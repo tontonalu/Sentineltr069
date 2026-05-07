@@ -70,7 +70,7 @@ templ List(in ListInput) {
 										</a>
 									</td>
 									<td>
-										@customerCell(in.CustomersByDevice[d.ID])
+										@customerCell(d, in.CustomersByDevice[d.ID])
 									</td>
 									<td class="font-mono text-xs text-sentinel-700">{ d.MAC }</td>
 									<td class="text-sentinel-700">{ d.FirmwareVersion }</td>
@@ -141,16 +141,21 @@ templ filtersBar(in ListInput) {
 	</form>
 }
 
-// customerCell — renderiza nome do cliente + PPPoE login. Sem cliente
-// vinculado, mostra placeholder discreto.
-templ customerCell(c *domain.Customer) {
-	if c == nil {
-		<span class="text-sentinel-400 text-xs">—</span>
-	} else {
+// customerCell — mostra nome do cliente (se vinculado) + login PPPoE.
+//
+// O login PPPoE vem do próprio device (lido do TR-069 pela sondagem).
+// Mesmo sem cliente vinculado (ex.: ERP ainda não importado), o operador
+// já consegue identificar o assinante pelo PPPoE.
+templ customerCell(d domain.Device, c *domain.Customer) {
+	if c != nil {
 		<div class="text-sentinel-900 text-sm">{ c.FullName }</div>
-		if c.PPPoELogin != "" {
-			<div class="font-mono text-[11px] text-sentinel-500">{ c.PPPoELogin }</div>
-		}
+	}
+	if d.PPPoELogin != "" {
+		<div class="font-mono text-[11px] text-sentinel-700">{ d.PPPoELogin }</div>
+	} else if c != nil && c.PPPoELogin != "" {
+		<div class="font-mono text-[11px] text-sentinel-500">{ c.PPPoELogin }</div>
+	} else if c == nil {
+		<span class="text-sentinel-400 text-xs">—</span>
 	}
 }
 

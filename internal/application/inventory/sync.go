@@ -307,6 +307,7 @@ func (s *SyncService) syncDevice(
 		Status:          status,
 		FirmwareVersion: fwVersion,
 		IPWAN:           ipWAN,
+		PPPoELogin:      pppoeLogin,
 		LastInformAt:    lastInform,
 		LastBootAt:      d.LastBoot,
 		Tags:            d.Tags,

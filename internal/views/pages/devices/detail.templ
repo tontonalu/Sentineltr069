@@ -46,7 +46,7 @@ templ Detail(csrfToken string, in DetailInput) {
 			<div class="flex items-start justify-between">
 				<div>
 					<h1 class="text-2xl font-semibold text-sentinel-900">{ deviceTitle(in.Device) }</h1>
-					<p class="text-sm text-sentinel-500">{ in.Device.GenieACSID }</p>
+					<p class="text-sm text-sentinel-500">{ deviceSubtitle(in.Device) }</p>
 				</div>
 				<div class="flex items-center gap-2">
 					<a href={ templ.URL("/devices/" + in.Device.ID.String() + "/history") } class="btn-ghost">Histórico</a>
@@ -249,10 +249,27 @@ func modelOptionLabel(m domain.DeviceModel, vendorNames map[uuid.UUID]string) st
 	return m.Model
 }
 
+// deviceTitle — header principal da página de detalhe.
+//
+// Prioridade: "PPPoE / Serial" quando houver login (caso típico da operação),
+// senão só Serial, senão GenieACSID. Identificação rápida na barra do
+// navegador e em link compartilhado.
 func deviceTitle(d domain.Device) string {
-	if d.SerialNumber != "" {
+	switch {
+	case d.PPPoELogin != "" && d.SerialNumber != "":
+		return d.PPPoELogin + " / " + d.SerialNumber
+	case d.PPPoELogin != "":
+		return d.PPPoELogin
+	case d.SerialNumber != "":
 		return d.SerialNumber
 	}
+	return d.GenieACSID
+}
+
+// deviceSubtitle — segunda linha discreta. Se o título já tem o serial,
+// vira só GenieACSID; caso contrário, expomos o GenieACSID (que costuma
+// conter Manufacturer-Model-Serial).
+func deviceSubtitle(d domain.Device) string {
 	return d.GenieACSID
 }
 

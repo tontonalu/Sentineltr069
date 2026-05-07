@@ -22,11 +22,18 @@ var redundantDeviceKeys = map[string]struct{}{
 }
 
 // filterRedundantDeviceFields remove os fields cuja informação já está
-// renderizada na Identificação. Mantém ordem estável.
+// renderizada na Identificação E os campos de portas físicas (que vão para
+// a aba "Status das portas" via telemetry, sem repetir aqui).
+//
+// O profile_view.go classifica `port.*` em CategoryDevice por padrão, então
+// se não filtrarmos eles entopem a aba Dispositivo. Mantém ordem estável.
 func filterRedundantDeviceFields(in []devapp.FieldView) []devapp.FieldView {
 	out := make([]devapp.FieldView, 0, len(in))
 	for _, f := range in {
 		if _, dup := redundantDeviceKeys[f.CanonicalKey]; dup {
+			continue
+		}
+		if strings.HasPrefix(f.CanonicalKey, "port.") {
 			continue
 		}
 		out = append(out, f)

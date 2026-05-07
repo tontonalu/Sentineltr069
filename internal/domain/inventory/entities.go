@@ -96,6 +96,7 @@ type Device struct {
 	Status             string
 	FirmwareVersion    string
 	IPWAN              net.IP
+	PPPoELogin         string // login PPPoE lido da árvore TR-069 (sem ligação com Customer)
 	LastInformAt       *time.Time
 	LastBootAt         *time.Time
 	Tags               []string

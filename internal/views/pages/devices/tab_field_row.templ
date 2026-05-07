@@ -23,13 +23,18 @@ templ FieldRow(in FieldRowInput) {
 	}
 }
 
-// fieldRowReadonly — definition list compact. Sem form, sem botão.
+// fieldRowReadonly — apresentação enxuta: rótulo à esquerda, valor à direita.
+// Sem TRPath visível (fica disponível via title= para inspeção). Sem
+// "atualizado HH:MM:SS" — já existe contexto no header da aba e isso polui
+// a página inteira quando há 30+ campos.
 templ fieldRowReadonly(in FieldRowInput) {
-	<div class="rounded border border-sentinel-100 bg-white px-4 py-3" id={ "field-" + in.Field.CanonicalKey }>
+	<div
+		class="rounded border border-sentinel-100 bg-white px-4 py-2.5"
+		id={ "field-" + in.Field.CanonicalKey }
+		title={ in.Field.TRPath }
+	>
 		<div class="flex items-baseline justify-between gap-3">
-			<dt class="text-xs font-medium uppercase tracking-wider text-sentinel-500">
-				{ in.Field.Label }
-			</dt>
+			<dt class="text-xs font-medium text-sentinel-600">{ in.Field.Label }</dt>
 			<dd class="text-sm font-mono text-sentinel-900 break-all text-right">
 				if in.Field.HasValue {
 					if in.Field.IsSecret {
@@ -45,16 +50,20 @@ templ fieldRowReadonly(in FieldRowInput) {
 		if in.Field.Error != "" {
 			<p class="mt-1 text-[11px] text-amber-700">{ in.Field.Error }</p>
 		}
-		@fieldFooter(in)
 	</div>
 }
 
 // fieldRowEditable — header com label + badge "editável", form inline em
-// linha separada (input flex-1 + botão à direita).
+// linha separada (input flex-1 + botão à direita). Sem TRPath visível —
+// disponível via tooltip (title=) na borda do card.
 templ fieldRowEditable(in FieldRowInput) {
-	<div class="rounded border border-sky-100 bg-white px-4 py-3 shadow-sm" id={ "field-" + in.Field.CanonicalKey }>
-		<div class="flex items-baseline justify-between">
-			<div class="text-xs font-medium uppercase tracking-wider text-sentinel-700">
+	<div
+		class="rounded border border-sky-100 bg-white px-4 py-3 shadow-sm"
+		id={ "field-" + in.Field.CanonicalKey }
+		title={ in.Field.TRPath }
+	>
+		<div class="flex items-baseline justify-between gap-2">
+			<div class="text-xs font-medium text-sentinel-700">
 				{ in.Field.Label }
 				if in.Field.IsSecret {
 					<span class="ml-1 inline-block rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">secret</span>
@@ -64,9 +73,6 @@ templ fieldRowEditable(in FieldRowInput) {
 				editável
 			</span>
 		</div>
-		if in.Field.Description != "" {
-			<p class="mt-0.5 text-[11px] text-sentinel-400">{ in.Field.Description }</p>
-		}
 		<form
 			method="POST"
 			action={ templ.URL("/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey) }
@@ -85,7 +91,6 @@ templ fieldRowEditable(in FieldRowInput) {
 		if in.EnqueuedJob != uuid.Nil {
 			@fieldJobBanner(in)
 		}
-		@fieldFooter(in)
 	</div>
 }
 
@@ -117,17 +122,6 @@ templ fieldInput(f devapp.FieldView) {
 			class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
 		/>
 	}
-}
-
-// fieldFooter — rodapé discreto: TRPath + horário da última leitura.
-// Útil para debug, mas não polui o fluxo principal.
-templ fieldFooter(in FieldRowInput) {
-	<div class="mt-2 flex items-center justify-between gap-2 border-t border-sentinel-100 pt-1 text-[10px] text-sentinel-400">
-		<span class="font-mono truncate" title={ in.Field.TRPath }>{ in.Field.TRPath }</span>
-		if !in.Field.LastReadAt.IsZero() {
-			<span class="whitespace-nowrap">atualizado { in.Field.LastReadAt.Format("15:04:05") }</span>
-		}
-	</div>
 }
 
 templ fieldJobBanner(in FieldRowInput) {

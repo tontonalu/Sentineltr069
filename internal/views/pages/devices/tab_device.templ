@@ -105,6 +105,16 @@ templ identificacaoCard(in TabInput) {
 				</dd>
 			</div>
 			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Login PPPoE</dt>
+				<dd class="mt-1 font-mono text-sentinel-900 break-all">
+					if in.Device.PPPoELogin != "" {
+						{ in.Device.PPPoELogin }
+					} else {
+						<span class="text-sentinel-400">—</span>
+					}
+				</dd>
+			</div>
+			<div>
 				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">POP</dt>
 				<dd class="mt-1 text-sentinel-900">
 					if in.POP != nil {
