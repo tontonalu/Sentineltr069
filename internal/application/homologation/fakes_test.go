@@ -182,6 +182,12 @@ func (r *fakeMappingRepo) ListBySession(_ context.Context, sid uuid.UUID) ([]hom
 	return out, nil
 }
 
+func (r *fakeMappingRepo) ListByProfile(_ context.Context, _ uuid.UUID) ([]hom.Mapping, error) {
+	// Fake simples: testes do service homologation não exercitam este método
+	// (que é consumido pelo profile_view, fora desta camada). Retorna vazio.
+	return nil, nil
+}
+
 func (r *fakeMappingRepo) GetByID(_ context.Context, id uuid.UUID) (*hom.Mapping, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -391,6 +397,26 @@ func (r *fakeHomModelRepo) ListByProfile(_ context.Context, profileID uuid.UUID)
 		}
 	}
 	return out, nil
+}
+
+func (r *fakeHomModelRepo) FindActiveByModel(_ context.Context, modelID uuid.UUID) (*hom.ModelHomologation, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var latest *hom.ModelHomologation
+	for i := range r.records {
+		h := r.records[i]
+		if h.ModelID != modelID || h.Status != hom.StatusHomologated {
+			continue
+		}
+		if latest == nil || h.HomologatedAt.After(latest.HomologatedAt) {
+			cp := h
+			latest = &cp
+		}
+	}
+	if latest == nil {
+		return nil, hom.ErrModelHomologationNotFound
+	}
+	return latest, nil
 }
 
 func (r *fakeHomModelRepo) Deprecate(_ context.Context, id uuid.UUID, reason string) error {

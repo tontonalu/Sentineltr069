@@ -1,0 +1,65 @@
+package devices
+
+// TabHosts — aba "Dispositivos Conectados". Tabela alimentada pelo
+// telemetry_hosts (hypertable TimescaleDB). Mostra o último ponto de cada
+// MAC nos últimos 15 min — host que sumiu nessa janela é tratado como
+// off-line e não aparece.
+templ TabHosts(in HostsInput) {
+	<div class="space-y-3">
+		<header class="flex items-center justify-between">
+			<h3 class="text-sm font-medium text-sentinel-700">
+				Dispositivos Conectados
+				<span class="ml-2 rounded bg-sentinel-50 px-1.5 text-xs text-sentinel-500">
+					{ intToStr(len(in.Hosts)) }
+				</span>
+			</h3>
+			<button
+				type="button"
+				hx-get={ "/devices/" + in.Device.ID.String() + "/tabs/hosts" }
+				hx-target="closest div.tab-pane"
+				hx-swap="innerHTML"
+				class="btn-ghost text-xs"
+			>↻ Atualizar</button>
+		</header>
+		if len(in.Hosts) == 0 {
+			<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
+				Nenhum dispositivo visto nos últimos 15 min. Aguarde a próxima coleta de telemetria.
+			</p>
+		} else {
+			<div class="overflow-x-auto rounded border border-sentinel-100">
+				<table class="w-full text-sm">
+					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
+						<tr>
+							<th class="px-3 py-2">Hostname</th>
+							<th class="px-3 py-2">IP</th>
+							<th class="px-3 py-2">MAC</th>
+							<th class="px-3 py-2">Tipo</th>
+							<th class="px-3 py-2">Interface</th>
+							<th class="px-3 py-2">Sinal</th>
+							<th class="px-3 py-2">Visto</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, h := range in.Hosts {
+							<tr class="border-t border-sentinel-100">
+								<td class="px-3 py-2 font-medium text-sentinel-900">{ defaultStr(h.Hostname, "—") }</td>
+								<td class="px-3 py-2 font-mono text-sentinel-700">{ defaultStr(h.IPAddress, "—") }</td>
+								<td class="px-3 py-2 font-mono text-xs text-sentinel-700">{ h.MACAddress }</td>
+								<td class="px-3 py-2 text-sentinel-700">{ defaultStr(h.AddressSource, "—") }</td>
+								<td class="px-3 py-2 text-sentinel-700">{ defaultStr(h.Layer1Interface, "—") }</td>
+								<td class="px-3 py-2 text-sentinel-700">
+									if h.SignalDBM != nil {
+										{ intToStr(*h.SignalDBM) } dBm
+									} else {
+										—
+									}
+								</td>
+								<td class="px-3 py-2 text-xs text-sentinel-500">{ h.Time.Format("15:04") }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+}

@@ -54,6 +54,12 @@ type MappingRepo interface {
 	UpdateTemplate(ctx context.Context, id uuid.UUID, valueTemplate string) error
 	UpdateReadResult(ctx context.Context, id uuid.UUID, status TestStatus, readValue, errMsg string) error
 	UpdateWriteResult(ctx context.Context, id uuid.UUID, status TestStatus, testValue, errMsg string) error
+
+	// ListByProfile devolve mappings de TODAS as sessões que geraram o
+	// profile (em prática 1 sessão por profile, mas modelamos como N).
+	// Usado pela página de device para descobrir read_status/write_status
+	// — informação que NÃO viaja com o profile, fica na sessão de origem.
+	ListByProfile(ctx context.Context, profileID uuid.UUID) ([]Mapping, error)
 }
 
 // CanonicalKeyRepo — catálogo de chaves padronizadas (read-mostly + admin).
@@ -76,4 +82,10 @@ type ModelHomologationRepo interface {
 	ListByModel(ctx context.Context, modelID uuid.UUID) ([]ModelHomologation, error)
 	ListByProfile(ctx context.Context, profileID uuid.UUID) ([]ModelHomologation, error)
 	Deprecate(ctx context.Context, id uuid.UUID, reason string) error
+
+	// FindActiveByModel devolve a homologação `homologated` mais recente do
+	// model. Usada pela página de device para descobrir qual profile expor
+	// na UI (abas Wireless/Internet/LAN). Retorna ErrModelHomologationNotFound
+	// se o modelo não tem nenhuma homologação ativa.
+	FindActiveByModel(ctx context.Context, modelID uuid.UUID) (*ModelHomologation, error)
 }

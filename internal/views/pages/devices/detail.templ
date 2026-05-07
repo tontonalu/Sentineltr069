@@ -57,138 +57,75 @@ templ Detail(csrfToken string, in DetailInput) {
 			if in.CanHomologate {
 				@modelAssign(csrfToken, in)
 			}
-			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-				<section class="rounded-lg bg-white p-6 shadow">
-					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Identificação</h2>
-					<dl class="grid grid-cols-2 gap-4 text-sm">
-						<div>
-							<dt class="text-sentinel-500">Status</dt>
-							<dd class="mt-1">@statusBadge(in.Device.Status)
-</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Serial</dt>
-							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.SerialNumber, "—") }</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">MAC</dt>
-							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.MAC, "—") }</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">OUI</dt>
-							<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.OUI, "—") }</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Vendor</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Vendor != nil {
-									{ in.Vendor.Name }
-								} else {
-									—
-								}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Modelo</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Model != nil {
-									{ in.Model.Model }
-									<span class="ml-2 rounded bg-sentinel-50 px-1.5 text-xs uppercase">{ in.Model.TRDataModel }</span>
-								} else {
-									—
-								}
-							</dd>
-						</div>
-					</dl>
-				</section>
-				<section class="rounded-lg bg-white p-6 shadow">
-					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Conectividade</h2>
-					<dl class="grid grid-cols-2 gap-4 text-sm">
-						<div>
-							<dt class="text-sentinel-500">Firmware</dt>
-							<dd class="mt-1 text-sentinel-900">{ defaultStr(in.Device.FirmwareVersion, "—") }</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">IP WAN</dt>
-							<dd class="mt-1 font-mono text-sentinel-900">
-								if in.Device.IPWAN != nil {
-									{ in.Device.IPWAN.String() }
-								} else {
-									—
-								}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Último inform</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Device.LastInformAt != nil {
-									{ in.Device.LastInformAt.Format("02/01/2006 15:04:05") }
-								} else {
-									nunca
-								}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Último boot</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Device.LastBootAt != nil {
-									{ in.Device.LastBootAt.Format("02/01/2006 15:04:05") }
-								} else {
-									—
-								}
-							</dd>
-						</div>
-					</dl>
-				</section>
-				<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
-					<h2 class="mb-4 text-lg font-medium text-sentinel-900">Negócio</h2>
-					<dl class="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
-						<div>
-							<dt class="text-sentinel-500">Cliente</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Customer != nil {
-									{ in.Customer.FullName }
-									if in.Customer.PPPoELogin != "" {
-										<div class="text-xs text-sentinel-500 font-mono">{ in.Customer.PPPoELogin }</div>
-									}
-								} else {
-									<span class="text-sentinel-500">não vinculado</span>
-								}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">Plano</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.Customer != nil {
-									{ defaultStr(in.Customer.PlanName, "—") }
-								} else {
-									—
-								}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-sentinel-500">POP</dt>
-							<dd class="mt-1 text-sentinel-900">
-								if in.POP != nil {
-									{ in.POP.Name }
-								} else {
-									<span class="text-sentinel-500">não atribuído</span>
-								}
-							</dd>
-						</div>
-					</dl>
-				</section>
-				if len(in.Device.Tags) > 0 {
-					<section class="rounded-lg bg-white p-6 shadow lg:col-span-2">
-						<h2 class="mb-3 text-sm font-medium text-sentinel-700">Tags do device</h2>
-						<div class="flex flex-wrap gap-2">
-							for _, t := range in.Device.Tags {
-								<span class="rounded-full bg-sentinel-50 px-2 py-0.5 text-xs text-sentinel-700">{ t }</span>
-							}
-						</div>
-					</section>
-				}
-			</div>
+			@deviceTabsNav(in.Device.ID.String())
+		</div>
+	}
+}
+
+// deviceTabsNav — Alpine x-data orquestra qual aba é visível; HTMX faz
+// lazy-load do fragmento /devices/{id}/tabs/{name} na primeira ativação.
+// `intersect once` garante que abas inativas não são fetchadas até o usuário
+// rolar até elas (caso layout em coluna; não custa pra o nav atual).
+templ deviceTabsNav(deviceID string) {
+	<div x-data="{ tab: 'device' }" class="space-y-4">
+		<nav class="flex flex-wrap gap-1 border-b border-sentinel-200" role="tablist">
+			@tabButton("device",   "Dispositivo")
+			@tabButton("internet", "Internet")
+			@tabButton("wireless", "Wireless")
+			@tabButton("lan",      "LAN")
+			@tabButton("hosts",    "Dispositivos Conectados")
+			@tabButton("ports",    "Status das portas")
+			@tabButton("stats",    "Estatísticas")
+			@tabButton("voip",     "VoIP")
+			@tabButton("diag",     "Diagnósticos")
+		</nav>
+		@tabPane(deviceID, "device")
+		@tabPane(deviceID, "internet")
+		@tabPane(deviceID, "wireless")
+		@tabPane(deviceID, "lan")
+		@tabPane(deviceID, "hosts")
+		@tabPane(deviceID, "ports")
+		@tabPane(deviceID, "stats")
+		@tabPane(deviceID, "voip")
+		@tabPane(deviceID, "diag")
+	</div>
+}
+
+templ tabButton(name, label string) {
+	<button
+		type="button"
+		role="tab"
+		x-bind:class={ "tab === '" + name + "' ? 'border-sentinel-900 text-sentinel-900' : 'border-transparent text-sentinel-500 hover:text-sentinel-900'" }
+		class="border-b-2 px-3 py-2 text-sm font-medium"
+		x-on:click={ "tab = '" + name + "'" }
+	>{ label }</button>
+}
+
+// tabPane — wrapper x-show + HTMX hx-get com hx-trigger="load once" no caso
+// da aba inicial (device), e "x-show:revealed" para as demais. Para manter
+// simples, aqui usamos `intersect once from:body` que dispara assim que o
+// pane fica visível pela primeira vez.
+templ tabPane(deviceID, name string) {
+	if name == "device" {
+		<div
+			class="tab-pane"
+			x-show={ "tab === '" + name + "'" }
+			hx-get={ "/devices/" + deviceID + "/tabs/" + name }
+			hx-trigger="load once"
+			hx-swap="innerHTML"
+		>
+			<p class="text-xs text-sentinel-400">Carregando…</p>
+		</div>
+	} else {
+		<div
+			class="tab-pane"
+			x-show={ "tab === '" + name + "'" }
+			x-cloak
+			hx-get={ "/devices/" + deviceID + "/tabs/" + name }
+			hx-trigger="intersect once"
+			hx-swap="innerHTML"
+		>
+			<p class="text-xs text-sentinel-400">Carregando…</p>
 		</div>
 	}
 }

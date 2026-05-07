@@ -78,6 +78,8 @@ type TickResult struct {
 	WifiSamples   int
 	WanSamples    int
 	SystemSamples int
+	HostSamples   int
+	PortSamples   int
 	Errors        int
 	Duration      time.Duration
 }
@@ -108,11 +110,13 @@ func (c *Collector) Tick(ctx context.Context) (*TickResult, error) {
 	chunks := splitChunks(devices, c.opts.ChunkSize)
 	sem := make(chan struct{}, c.opts.Parallel)
 	var (
-		mu       sync.Mutex
-		wifiAll  []tele.WifiSample
-		wanAll   []tele.WanSample
-		sysAll   []tele.SystemSample
-		errCount int
+		mu        sync.Mutex
+		wifiAll   []tele.WifiSample
+		wanAll    []tele.WanSample
+		sysAll    []tele.SystemSample
+		hostsAll  []tele.HostSample
+		portsAll  []tele.PortSample
+		errCount  int
 	)
 
 	var wg sync.WaitGroup
@@ -123,12 +127,14 @@ func (c *Collector) Tick(ctx context.Context) (*TickResult, error) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			localWifi, localWan, localSys, errs := c.collectChunk(ctx, chunk, now)
+			localWifi, localWan, localSys, localHosts, localPorts, errs := c.collectChunk(ctx, chunk, now)
 
 			mu.Lock()
 			wifiAll = append(wifiAll, localWifi...)
 			wanAll = append(wanAll, localWan...)
 			sysAll = append(sysAll, localSys...)
+			hostsAll = append(hostsAll, localHosts...)
+			portsAll = append(portsAll, localPorts...)
 			errCount += errs
 			mu.Unlock()
 		}(chunk)
@@ -147,10 +153,20 @@ func (c *Collector) Tick(ctx context.Context) (*TickResult, error) {
 		log.Error("telemetry insert system", "err", err)
 		errCount++
 	}
+	if err := c.repo.InsertHosts(ctx, hostsAll); err != nil {
+		log.Error("telemetry insert hosts", "err", err)
+		errCount++
+	}
+	if err := c.repo.InsertPorts(ctx, portsAll); err != nil {
+		log.Error("telemetry insert ports", "err", err)
+		errCount++
+	}
 
 	res.WifiSamples = len(wifiAll)
 	res.WanSamples = len(wanAll)
 	res.SystemSamples = len(sysAll)
+	res.HostSamples = len(hostsAll)
+	res.PortSamples = len(portsAll)
 	res.Errors = errCount
 	res.Duration = time.Since(start)
 	return res, nil
@@ -171,19 +187,22 @@ func (c *Collector) listOnline(ctx context.Context) ([]inventory.Device, error) 
 }
 
 func (c *Collector) collectChunk(ctx context.Context, chunk []inventory.Device, now time.Time) (
-	[]tele.WifiSample, []tele.WanSample, []tele.SystemSample, int,
+	[]tele.WifiSample, []tele.WanSample, []tele.SystemSample,
+	[]tele.HostSample, []tele.PortSample, int,
 ) {
 	log := logger.FromContext(ctx)
 	var (
-		wifi []tele.WifiSample
-		wan  []tele.WanSample
-		sys  []tele.SystemSample
-		errs int
+		wifi  []tele.WifiSample
+		wan   []tele.WanSample
+		sys   []tele.SystemSample
+		hosts []tele.HostSample
+		ports []tele.PortSample
+		errs  int
 	)
 	for _, d := range chunk {
 		select {
 		case <-ctx.Done():
-			return wifi, wan, sys, errs
+			return wifi, wan, sys, hosts, ports, errs
 		default:
 		}
 		dCtx, cancel := context.WithTimeout(ctx, c.opts.PerDeviceTimeout)
@@ -194,7 +213,7 @@ func (c *Collector) collectChunk(ctx context.Context, chunk []inventory.Device, 
 			log.Debug("telemetry getdevice failed", "device", d.GenieACSID, "err", err)
 			continue
 		}
-		w, wn, s := ParseDevice(now, d.ID, dev.Raw)
+		w, wn, s, hs, ps := ParseDeviceFull(now, d.ID, dev.Raw)
 		for _, sample := range w {
 			if sample.HasAnyMetric() {
 				wifi = append(wifi, sample)
@@ -206,8 +225,18 @@ func (c *Collector) collectChunk(ctx context.Context, chunk []inventory.Device, 
 		if s.HasAnyMetric() {
 			sys = append(sys, s)
 		}
+		for _, h := range hs {
+			if h.HasAnyMetric() {
+				hosts = append(hosts, h)
+			}
+		}
+		for _, p := range ps {
+			if p.HasAnyMetric() {
+				ports = append(ports, p)
+			}
+		}
 	}
-	return wifi, wan, sys, errs
+	return wifi, wan, sys, hosts, ports, errs
 }
 
 func splitChunks(devs []inventory.Device, size int) [][]inventory.Device {

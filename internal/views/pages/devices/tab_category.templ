@@ -1,0 +1,48 @@
+package devices
+
+import (
+	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
+)
+
+// TabCategory — usada pelas abas Internet/Wireless/LAN/VoIP. Renderiza
+// apenas os fields da categoria solicitada do profile homologado.
+templ TabCategory(in CategoryInput) {
+	<div class="space-y-3">
+		<header class="flex items-center justify-between">
+			<h3 class="text-sm font-medium text-sentinel-700">{ in.Title }</h3>
+			if in.View != nil && in.View.HasHomologation {
+				<span class="text-xs text-sentinel-500">
+					Profile: { in.View.ProfileName } · v{ intToStr(in.View.ProfileVersion) }
+				</span>
+			}
+		</header>
+		if in.View == nil || !in.View.HasHomologation {
+			<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+				Este device não tem profile homologado. Configure em /homologation.
+			</p>
+		} else {
+			@categoryFields(in.Device.ID.String(), in.View, in.Category, in.CSRFToken, in.CanEdit)
+		}
+	</div>
+}
+
+// categoryFields — bloco compartilhado: lista os FieldRow de uma categoria.
+// Se a categoria não existe no profile, mostra placeholder amigável.
+templ categoryFields(deviceID string, view *devapp.DeviceProfileView, category, csrf string, canEdit bool) {
+	if g, ok := view.GroupsByCategory[category]; ok && len(g.Fields) > 0 {
+		<div class="space-y-2">
+			for _, f := range g.Fields {
+				@FieldRow(FieldRowInput{
+					DeviceID:  uuidFromStr(deviceID),
+					Field:     f,
+					CSRFToken: csrf,
+					CanEdit:   canEdit,
+				})
+			}
+		</div>
+	} else {
+		<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
+			Nenhum parâmetro homologado nesta categoria.
+		</p>
+	}
+}

@@ -1,0 +1,20 @@
+package devices
+
+// TabDiag — placeholder para diagnósticos (ping/traceroute/speed test).
+// Implementação completa exige expor os endpoints `Diagnostics.*` do TR-069
+// no client GenieACS — fica para fase posterior.
+templ TabDiag(in DiagInput) {
+	<div class="space-y-3">
+		<h3 class="text-sm font-medium text-sentinel-700">Diagnósticos</h3>
+		<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
+			Ferramentas de diagnóstico (ping, traceroute, teste de velocidade)
+			ainda não estão implementadas. Use o GenieACS NBI diretamente ou
+			abra um chamado para incluir os endpoints na próxima fase.
+		</p>
+		<div class="flex flex-wrap gap-2 opacity-50">
+			<button type="button" class="btn-ghost text-xs" disabled>Ping</button>
+			<button type="button" class="btn-ghost text-xs" disabled>Traceroute</button>
+			<button type="button" class="btn-ghost text-xs" disabled>Teste de velocidade</button>
+		</div>
+	</div>
+}

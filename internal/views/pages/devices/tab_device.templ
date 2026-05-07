@@ -1,0 +1,77 @@
+package devices
+
+import (
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
+)
+
+// TabDevice — aba "Dispositivo" (informações gerais + ações + categoria
+// 'device' do profile homologado).
+templ TabDevice(in TabInput) {
+	<div class="space-y-4">
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h3 class="mb-3 text-sm font-medium text-sentinel-700">Identificação</h3>
+			<dl class="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
+				<div>
+					<dt class="text-xs text-sentinel-500">Status</dt>
+					<dd class="mt-1">@statusBadge(in.Device.Status)</dd>
+				</div>
+				<div>
+					<dt class="text-xs text-sentinel-500">Serial</dt>
+					<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.SerialNumber, "—") }</dd>
+				</div>
+				<div>
+					<dt class="text-xs text-sentinel-500">MAC</dt>
+					<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.MAC, "—") }</dd>
+				</div>
+				<div>
+					<dt class="text-xs text-sentinel-500">Firmware</dt>
+					<dd class="mt-1 text-sentinel-900">{ defaultStr(in.Device.FirmwareVersion, "—") }</dd>
+				</div>
+				<div>
+					<dt class="text-xs text-sentinel-500">IP WAN</dt>
+					<dd class="mt-1 font-mono text-sentinel-900">
+						if in.Device.IPWAN != nil {
+							{ in.Device.IPWAN.String() }
+						} else {
+							—
+						}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-xs text-sentinel-500">Último inform</dt>
+					<dd class="mt-1 text-sentinel-900">
+						if in.Device.LastInformAt != nil {
+							{ in.Device.LastInformAt.Format("02/01/2006 15:04") }
+						} else {
+							nunca
+						}
+					</dd>
+				</div>
+			</dl>
+		</section>
+
+		if in.View == nil || !in.View.HasHomologation {
+			@homologationMissingBanner(in)
+		} else {
+			@categoryFields(in.Device.ID.String(), in.View, hom.CategoryDevice, in.CSRFToken, in.CanEdit)
+		}
+	</div>
+}
+
+// homologationMissingBanner — mostrado quando o modelo do device não tem
+// profile homologado. Indica claramente o próximo passo para o operador.
+templ homologationMissingBanner(in TabInput) {
+	<section class="rounded-lg border border-amber-300 bg-amber-50 p-4">
+		<h3 class="text-sm font-semibold text-amber-900">Modelo não homologado</h3>
+		<p class="mt-1 text-xs text-amber-800">
+			Este device só exibe dados básicos porque o modelo
+			if in.View != nil && in.Device.ModelID != nil {
+				atribuído
+			}
+			ainda não tem um profile homologado. Inicie o wizard em
+			<a href="/homologation" class="underline">/homologation</a>
+			para mapear os parâmetros do modelo e desbloquear as abas Internet,
+			Wireless, LAN, VoIP.
+		</p>
+	</section>
+}

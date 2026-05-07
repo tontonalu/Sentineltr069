@@ -228,6 +228,107 @@ func (r *TelemetryRepo) QuerySystemHourly(ctx context.Context, deviceID uuid.UUI
 	return out, rows.Err()
 }
 
+// ──────────── Hosts (dispositivos conectados) ────────────
+
+func (r *TelemetryRepo) InsertHosts(ctx context.Context, samples []tele.HostSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+	rows := make([][]any, 0, len(samples))
+	for _, s := range samples {
+		rows = append(rows, []any{
+			s.Time, s.DeviceID, s.MACAddress,
+			nullIfEmpty(s.Hostname), nullIfEmpty(s.IPAddress),
+			nullIfEmpty(s.AddressSource), nullIfEmpty(s.Layer1Interface),
+			int64Ptr(s.ActiveSeconds), intPtr(s.SignalDBM),
+		})
+	}
+	_, err := r.pool.CopyFrom(ctx,
+		pgx.Identifier{"telemetry_hosts"},
+		[]string{"time", "device_id", "mac_address", "hostname", "ip_address",
+			"address_source", "layer1_interface", "active_seconds", "signal_dbm"},
+		pgx.CopyFromRows(rows),
+	)
+	return err
+}
+
+// LatestHostsByDevice — DISTINCT ON (mac_address) dentro da janela.
+// Mesmo MAC pode aparecer em sub-objetos diferentes em vendors bagunçados;
+// esta query devolve apenas o ponto mais recente por MAC.
+func (r *TelemetryRepo) LatestHostsByDevice(ctx context.Context, deviceID uuid.UUID, rg tele.Range) ([]tele.HostSample, error) {
+	const q = `
+		SELECT DISTINCT ON (mac_address)
+		       time, device_id, mac_address,
+		       COALESCE(hostname,''), COALESCE(ip_address,''),
+		       COALESCE(address_source,''), COALESCE(layer1_interface,''),
+		       active_seconds, signal_dbm
+		  FROM telemetry_hosts
+		 WHERE device_id = $1 AND time BETWEEN $2 AND $3
+		 ORDER BY mac_address, time DESC`
+	rows, err := r.pool.Query(ctx, q, deviceID, rg.From, rg.To)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []tele.HostSample
+	for rows.Next() {
+		var h tele.HostSample
+		if err := rows.Scan(&h.Time, &h.DeviceID, &h.MACAddress,
+			&h.Hostname, &h.IPAddress, &h.AddressSource, &h.Layer1Interface,
+			&h.ActiveSeconds, &h.SignalDBM); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// ──────────── Ports (status físico das portas Ethernet/WAN) ────────────
+
+func (r *TelemetryRepo) InsertPorts(ctx context.Context, samples []tele.PortSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+	rows := make([][]any, 0, len(samples))
+	for _, s := range samples {
+		rows = append(rows, []any{
+			s.Time, s.DeviceID, s.PortName, s.Status,
+			intPtr(s.SpeedMbps), nullIfEmpty(s.Duplex),
+		})
+	}
+	_, err := r.pool.CopyFrom(ctx,
+		pgx.Identifier{"telemetry_ports"},
+		[]string{"time", "device_id", "port_name", "status", "speed_mbps", "duplex"},
+		pgx.CopyFromRows(rows),
+	)
+	return err
+}
+
+// LatestPortsByDevice — DISTINCT ON (port_name).
+func (r *TelemetryRepo) LatestPortsByDevice(ctx context.Context, deviceID uuid.UUID, rg tele.Range) ([]tele.PortSample, error) {
+	const q = `
+		SELECT DISTINCT ON (port_name)
+		       time, device_id, port_name, status, speed_mbps, COALESCE(duplex,'')
+		  FROM telemetry_ports
+		 WHERE device_id = $1 AND time BETWEEN $2 AND $3
+		 ORDER BY port_name, time DESC`
+	rows, err := r.pool.Query(ctx, q, deviceID, rg.From, rg.To)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []tele.PortSample
+	for rows.Next() {
+		var p tele.PortSample
+		if err := rows.Scan(&p.Time, &p.DeviceID, &p.PortName, &p.Status,
+			&p.SpeedMbps, &p.Duplex); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // ──────────── helpers ────────────
 
 func nullIfEmpty(s string) any {

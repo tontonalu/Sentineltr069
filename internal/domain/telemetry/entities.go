@@ -100,3 +100,36 @@ type HourlySystemPoint struct {
 	AvgMem    *float64
 	UptimeMax *int64
 }
+
+// HostSample — 1 dispositivo conectado à LAN do CPE em um tick.
+// Origem: InternetGatewayDevice.LANDevice.1.Hosts.Host.{i} (TR-098) ou
+// Device.Hosts.Host.{i} (TR-181). MACAddress é a chave natural.
+type HostSample struct {
+	Time            time.Time
+	DeviceID        uuid.UUID
+	MACAddress      string
+	Hostname        string
+	IPAddress       string
+	AddressSource   string // "DHCP" | "Static" | ""
+	Layer1Interface string // "Ethernet" | "WiFi-2.4G" | "WiFi-5G" | ""
+	ActiveSeconds   *int64 // LeaseTimeRemaining quando aplicável
+	SignalDBM       *int   // só faz sentido para WiFi
+}
+
+// HasAnyMetric — MAC é o mínimo. Sem MAC não dá pra dedupar.
+func (h HostSample) HasAnyMetric() bool { return h.MACAddress != "" }
+
+// PortSample — status físico de uma porta Ethernet/WAN do CPE.
+type PortSample struct {
+	Time      time.Time
+	DeviceID  uuid.UUID
+	PortName  string // "WAN" | "LAN1" | "LAN2" | ...
+	Status    string // "Up" | "Down"
+	SpeedMbps *int   // 10 / 100 / 1000 / ...
+	Duplex    string // "Full" | "Half" | ""
+}
+
+// HasAnyMetric — port_name + status válido obrigatórios pelo CHECK do banco.
+func (p PortSample) HasAnyMetric() bool {
+	return p.PortName != "" && (p.Status == "Up" || p.Status == "Down")
+}

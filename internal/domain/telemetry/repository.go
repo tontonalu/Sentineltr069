@@ -24,4 +24,15 @@ type Repository interface {
 
 	QuerySystemRaw(ctx context.Context, deviceID uuid.UUID, r Range) ([]SystemSample, error)
 	QuerySystemHourly(ctx context.Context, deviceID uuid.UUID, r Range) ([]HourlySystemPoint, error)
+
+	// Hosts (dispositivos conectados na LAN do CPE).
+	InsertHosts(ctx context.Context, samples []HostSample) error
+	// LatestHostsByDevice devolve, para o device, o último ponto de cada
+	// (mac_address) dentro da janela `since` — janela típica: 15 min para
+	// representar "online agora", 24h para "vistos hoje".
+	LatestHostsByDevice(ctx context.Context, deviceID uuid.UUID, since Range) ([]HostSample, error)
+
+	// Ports (status físico das portas Ethernet/WAN).
+	InsertPorts(ctx context.Context, samples []PortSample) error
+	LatestPortsByDevice(ctx context.Context, deviceID uuid.UUID, since Range) ([]PortSample, error)
 }

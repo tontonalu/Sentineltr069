@@ -18,6 +18,7 @@ import (
 
 	// blank import força o registro do plugin Voalle (e futuros) no registry global.
 	_ "github.com/celinet/sentinel-acs/internal/infrastructure/erp/voalle"
+	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
 	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
@@ -302,6 +303,29 @@ func run() error {
 		historyH = &handlers.HistoryHandler{Devices: deviceRepo, Telemetry: telemetryRepo}
 	}
 
+	// DeviceTabsHandler — handler das abas dinâmicas em /devices/{id}.
+	// Depende de tplService (LoadFull profiles), homologation repos
+	// (descobrir profile homologado por modelo) e do client GenieACS para
+	// ler valores atuais. Tudo opcional — se faltar pgPool, fica nil e as
+	// rotas correspondentes não são registradas.
+	var deviceTabsH *handlers.DeviceTabsHandler
+	if pgPool != nil && tplService != nil && provService != nil {
+		profileViewSvc := devapp.NewService(
+			deviceRepo,
+			pgdb.NewModelHomologationRepo(pgPool),
+			tplService,
+			pgdb.NewCanonicalKeyRepo(pgPool),
+			pgdb.NewHomologationMappingRepo(pgPool),
+			genieClient,
+			provService,
+		)
+		deviceTabsH = &handlers.DeviceTabsHandler{
+			Devices:     deviceRepo,
+			ProfileView: profileViewSvc,
+			Telemetry:   telemetryRepo,
+		}
+	}
+
 	// Alertas — repos + handler. Engine roda no worker, não aqui.
 	var (
 		alertsH   *handlers.AlertsHandler
@@ -526,6 +550,15 @@ func run() error {
 					Post("/{id}/templates/{profileID}/preview", provH.PreviewToDevice)
 				r.With(mw.RequirePermission("provisioning", "apply")).
 					Post("/{id}/templates/{profileID}/apply", provH.ApplyToDevice)
+			}
+
+			// Abas dinâmicas + edição inline de campos (HTMX fragments).
+			// Lazy-load por aba: cada GET devolve o HTML do pane.
+			// POST /fields/{key} cria provisioning_job single-parameter.
+			if deviceTabsH != nil {
+				r.Get("/{id}/tabs/{name}", deviceTabsH.Tab)
+				r.With(mw.RequirePermission("device", "configure")).
+					Post("/{id}/fields/{canonical_key}", deviceTabsH.UpdateField)
 			}
 		})
 

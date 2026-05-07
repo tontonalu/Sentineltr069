@@ -1,0 +1,92 @@
+package devices
+
+// TabStats — aba "Estatísticas" embutida na página de detalhe. Reusa o
+// renderer SVG `dualLineSVG` definido em history.templ.
+templ TabStats(in StatsInput) {
+	<div class="space-y-4">
+		<header class="flex items-center justify-between">
+			<h3 class="text-sm font-medium text-sentinel-700">Estatísticas (últimas { rangeLabel(in.Range) })</h3>
+			@statsRangeSelector(in.Device.ID.String(), in.Range)
+		</header>
+
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-2 text-xs font-medium text-sentinel-700">Clientes Wi-Fi</h4>
+			if len(in.WifiSeries) == 0 && len(in.WifiSeries5G) == 0 {
+				<p class="text-xs text-sentinel-500">Sem dados na janela selecionada.</p>
+			} else {
+				<div class="flex items-center gap-3 text-[10px] text-sentinel-500 mb-1">
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-blue-500"></span> 2.4 GHz</span>
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-emerald-500"></span> 5 GHz</span>
+				</div>
+				@dualLineSVG(in.WifiSeries, in.WifiSeries5G, "#3B82F6", "#10B981")
+			}
+		</section>
+
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-2 text-xs font-medium text-sentinel-700">CPU & Memória (%)</h4>
+			if len(in.CPUSeries) == 0 && len(in.MemSeries) == 0 {
+				<p class="text-xs text-sentinel-500">Sem dados na janela selecionada.</p>
+			} else {
+				<div class="flex items-center gap-3 text-[10px] text-sentinel-500 mb-1">
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-rose-500"></span> CPU</span>
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-amber-500"></span> Mem</span>
+				</div>
+				@dualLineSVG(in.CPUSeries, in.MemSeries, "#F43F5E", "#F59E0B")
+			}
+		</section>
+
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-2 text-xs font-medium text-sentinel-700">Tráfego WAN (bytes)</h4>
+			if len(in.WanRxSeries) == 0 && len(in.WanTxSeries) == 0 {
+				<p class="text-xs text-sentinel-500">Sem dados na janela selecionada.</p>
+			} else {
+				<div class="flex items-center gap-3 text-[10px] text-sentinel-500 mb-1">
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-indigo-500"></span> RX</span>
+					<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-3 rounded bg-orange-500"></span> TX</span>
+				</div>
+				@dualLineSVG(in.WanRxSeries, in.WanTxSeries, "#6366F1", "#F97316")
+			}
+		</section>
+
+		<p class="text-[10px] text-sentinel-400">
+			Para visão completa veja
+			<a href={ templ.URL("/devices/" + in.Device.ID.String() + "/history?range=" + in.Range) } class="underline">
+				/devices/{ in.Device.ID.String() }/history
+			</a>
+		</p>
+	</div>
+}
+
+templ statsRangeSelector(deviceID, current string) {
+	<div class="flex items-center gap-1 text-xs">
+		for _, r := range []string{"24h", "7d", "30d"} {
+			if r == current {
+				<button
+					type="button"
+					class="rounded bg-sentinel-900 px-2 py-1 font-medium text-white"
+					hx-get={ "/devices/" + deviceID + "/tabs/stats?range=" + r }
+					hx-target="closest div.tab-pane"
+					hx-swap="innerHTML"
+				>{ r }</button>
+			} else {
+				<button
+					type="button"
+					class="rounded bg-sentinel-100 px-2 py-1 text-sentinel-700 hover:bg-sentinel-200"
+					hx-get={ "/devices/" + deviceID + "/tabs/stats?range=" + r }
+					hx-target="closest div.tab-pane"
+					hx-swap="innerHTML"
+				>{ r }</button>
+			}
+		}
+	</div>
+}
+
+func rangeLabel(r string) string {
+	switch r {
+	case "7d":
+		return "7 dias"
+	case "30d":
+		return "30 dias"
+	}
+	return "24 horas"
+}

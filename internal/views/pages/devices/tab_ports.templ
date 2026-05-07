@@ -1,0 +1,65 @@
+package devices
+
+// TabPorts — aba "Status das Portas". Mostra WAN + LAN1..N com cor por
+// status (Up=verde, Down=vermelho), velocidade e duplex.
+templ TabPorts(in PortsInput) {
+	<div class="space-y-3">
+		<header class="flex items-center justify-between">
+			<h3 class="text-sm font-medium text-sentinel-700">Status das portas</h3>
+			<button
+				type="button"
+				hx-get={ "/devices/" + in.Device.ID.String() + "/tabs/ports" }
+				hx-target="closest div.tab-pane"
+				hx-swap="innerHTML"
+				class="btn-ghost text-xs"
+			>↻ Atualizar</button>
+		</header>
+		if len(in.Ports) == 0 {
+			<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
+				Nenhuma porta visível nos últimos 15 min. Modelos sem mapping de
+				Ethernet.Interface ficam fora — execute homologação para incluir.
+			</p>
+		} else {
+			<div class="overflow-x-auto rounded border border-sentinel-100">
+				<table class="w-full text-sm">
+					<thead class="bg-sentinel-50 text-left text-xs uppercase tracking-wider text-sentinel-500">
+						<tr>
+							<th class="px-3 py-2">Porta</th>
+							<th class="px-3 py-2">Status</th>
+							<th class="px-3 py-2">Velocidade</th>
+							<th class="px-3 py-2">Duplex</th>
+							<th class="px-3 py-2">Atualizado</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, p := range in.Ports {
+							<tr class="border-t border-sentinel-100">
+								<td class="px-3 py-2 font-medium text-sentinel-900">{ p.PortName }</td>
+								<td class="px-3 py-2">
+									@portStatusBadge(p.Status)
+								</td>
+								<td class="px-3 py-2 text-sentinel-700">
+									if p.SpeedMbps != nil {
+										{ intToStr(*p.SpeedMbps) } Mbps
+									} else {
+										<span class="text-sentinel-400">—</span>
+									}
+								</td>
+								<td class="px-3 py-2 text-sentinel-700">{ defaultStr(p.Duplex, "—") }</td>
+								<td class="px-3 py-2 text-xs text-sentinel-500">{ p.Time.Format("15:04") }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+}
+
+templ portStatusBadge(status string) {
+	if status == "Up" {
+		<span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Up</span>
+	} else {
+		<span class="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Down</span>
+	}
+}

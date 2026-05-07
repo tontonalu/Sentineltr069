@@ -280,6 +280,31 @@ func (r *HomologationMappingRepo) ListBySession(ctx context.Context, sessionID u
 	return out, rows.Err()
 }
 
+func (r *HomologationMappingRepo) ListByProfile(ctx context.Context, profileID uuid.UUID) ([]hom.Mapping, error) {
+	const q = `
+		SELECT m.id, m.session_id, m.canonical_key, m.tr_path, m.value_template,
+		       m.data_type, m.is_secret, m.sort_order, m.read_status, m.write_status,
+		       m.read_value, m.write_test_value, m.last_error, m.tested_at
+		  FROM homologation_mappings m
+		  JOIN homologation_sessions s ON s.id = m.session_id
+		 WHERE s.generated_profile_id = $1
+		 ORDER BY m.sort_order, m.canonical_key`
+	rows, err := r.pool.Query(ctx, q, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []hom.Mapping
+	for rows.Next() {
+		m, err := scanMapping(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (r *HomologationMappingRepo) GetByID(ctx context.Context, id uuid.UUID) (*hom.Mapping, error) {
 	const q = `
 		SELECT id, session_id, canonical_key, tr_path, value_template, data_type,
@@ -591,6 +616,35 @@ func (r *ModelHomologationRepo) listBy(ctx context.Context, col string, val uuid
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// FindActiveByModel — pega a última homologação ATIVA para um modelo.
+// Como o índice único parcial idx_model_hom_active garante apenas 1 par
+// (model, profile) ativo, em tese deveria haver no máximo 1 — mas se o
+// operador homologar 2 profiles diferentes para o mesmo modelo (ex.: básico
+// vs. avançado), pegamos a mais recente.
+func (r *ModelHomologationRepo) FindActiveByModel(ctx context.Context, modelID uuid.UUID) (*hom.ModelHomologation, error) {
+	const q = `
+		SELECT id, model_id, profile_id, session_id, homologated_by,
+		       homologated_at, status, deprecated_at, COALESCE(deprecated_reason,'')
+		  FROM model_homologations
+		 WHERE model_id = $1 AND status = 'homologated'
+		 ORDER BY homologated_at DESC
+		 LIMIT 1`
+	var h hom.ModelHomologation
+	var status string
+	err := r.pool.QueryRow(ctx, q, modelID).Scan(
+		&h.ID, &h.ModelID, &h.ProfileID, &h.SessionID, &h.HomologatedBy,
+		&h.HomologatedAt, &status, &h.DeprecatedAt, &h.DeprecatedReason,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, hom.ErrModelHomologationNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	h.Status = hom.HomologationStatus(status)
+	return &h, nil
 }
 
 func (r *ModelHomologationRepo) Deprecate(ctx context.Context, id uuid.UUID, reason string) error {
