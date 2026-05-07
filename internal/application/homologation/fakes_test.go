@@ -419,6 +419,37 @@ func (r *fakeHomModelRepo) FindActiveByModel(_ context.Context, modelID uuid.UUI
 	return latest, nil
 }
 
+func (r *fakeHomModelRepo) LatestByProfiles(_ context.Context, profileIDs []uuid.UUID) (map[uuid.UUID]hom.ModelHomologation, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	want := make(map[uuid.UUID]struct{}, len(profileIDs))
+	for _, id := range profileIDs {
+		want[id] = struct{}{}
+	}
+	out := map[uuid.UUID]hom.ModelHomologation{}
+	for i := range r.records {
+		h := r.records[i]
+		if _, ok := want[h.ProfileID]; !ok {
+			continue
+		}
+		cur, exists := out[h.ProfileID]
+		if !exists {
+			out[h.ProfileID] = h
+			continue
+		}
+		// Prefere status='homologated'; em empate, o mais recente.
+		curActive := cur.Status == hom.StatusHomologated
+		newActive := h.Status == hom.StatusHomologated
+		switch {
+		case newActive && !curActive:
+			out[h.ProfileID] = h
+		case newActive == curActive && h.HomologatedAt.After(cur.HomologatedAt):
+			out[h.ProfileID] = h
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeHomModelRepo) Deprecate(_ context.Context, id uuid.UUID, reason string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -3,6 +3,9 @@ package templates
 import (
 	"strconv"
 
+	"github.com/google/uuid"
+
+	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	"github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 	"github.com/celinet/sentinel-acs/internal/views/components"
@@ -19,6 +22,13 @@ type ListInput struct {
 	ModelID    string
 	ActiveOnly bool
 	CSRF       string
+
+	// HomologationByProfile mapeia profile.ID → registro mais recente em
+	// model_homologations (preferindo status='homologated' quando coexiste
+	// com 'deprecated'). Profiles sem registro ficam ausentes do mapa.
+	// Usado pra exibir Homologado vs Revogado na coluna Status — sem isso
+	// um profile homologado e depois revogado continuaria como "Ativo".
+	HomologationByProfile map[uuid.UUID]hom.ModelHomologation
 }
 
 templ List(in ListInput) {
@@ -46,21 +56,9 @@ templ List(in ListInput) {
 										}
 									</td>
 									<td class="text-sentinel-700">{ vendorModelLabel(p, in) }</td>
-									<td class="font-mono text-sentinel-700">v{ strconv.Itoa(p.Version) }</td>
-									<td>
-										if p.IsActive {
-											@components.Badge("Ativo", "info")
-										} else {
-											@components.Badge("Inativo", "neutral")
-										}
-									</td>
-									<td class="text-right">
-										if p.IsHomologated {
-											<span class="text-xs text-emerald-700" title="Profile homologado — imutável">🔒 homologado</span>
-										} else {
-											<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
-										}
-									</td>
+									<td class="text-sentinel-700">@versionCell(p, in)</td>
+									<td>@statusBadge(p, in)</td>
+									<td class="text-right">@actionsCell(p, in)</td>
 								</tr>
 							}
 						</tbody>
@@ -92,6 +90,94 @@ templ filtersBar(in ListInput) {
 		</label>
 		<button type="submit" class="btn-secondary">Filtrar</button>
 	</form>
+}
+
+// statusBadge — Status real do profile.
+//
+// Para profile homologado consultamos `model_homologations`: o registro pode
+// estar como 'deprecated' (operador revogou pela página de detalhe) sem que o
+// próprio profile mude de IsActive — sem este lookup a lista mostraria
+// "Ativo/verde" indefinidamente após uma revogação.
+//
+// Profiles manuais (sem registro de homologação) seguem usando IsActive.
+templ statusBadge(p tmpl.Profile, in ListInput) {
+	if rec, ok := in.HomologationByProfile[p.ID]; ok {
+		if rec.Status == hom.StatusHomologated {
+			@components.Badge("Homologado", "success")
+		} else {
+			@components.Badge("Revogado", "danger")
+		}
+	} else if p.IsHomologated {
+		// Profile marcado homologado mas sem registro — estado inconsistente,
+		// destaca pra investigação manual em vez de mascarar como "Ativo".
+		@components.Badge("Homologado (sem registro)", "warning")
+	} else if p.IsActive {
+		@components.Badge("Ativo", "info")
+	} else {
+		@components.Badge("Inativo", "neutral")
+	}
+}
+
+// versionCell — para profiles homologados o `Version` interno fica fixo em 1
+// (cada ciclo de homologação cria uma Profile entity nova), o que confunde o
+// operador que vê "v1" em todas as gerações. Mostramos a data da homologação
+// pra distinguir gerações; profiles manuais continuam com `v{N}`.
+templ versionCell(p tmpl.Profile, in ListInput) {
+	if rec, ok := in.HomologationByProfile[p.ID]; ok {
+		<span class="text-xs text-sentinel-600" title={ "Homologado em " + rec.HomologatedAt.Format("02/01/2006 15:04") }>
+			{ rec.HomologatedAt.Format("02/01/2006") }
+		</span>
+	} else {
+		<span class="font-mono text-sentinel-700">v{ strconv.Itoa(p.Version) }</span>
+	}
+}
+
+// actionsCell — homologação ativa trava edição (cadeado); revogada solta o
+// link de edição porque o profile já não está mais sendo aplicado em produção.
+// Profiles homologados sem registro também ficam travados — segurança por
+// padrão, evita editar inadvertidamente um profile referenciado em algum
+// fluxo legacy.
+templ actionsCell(p tmpl.Profile, in ListInput) {
+	switch homologationFlavor(p, in) {
+		case "active":
+			<span class="text-xs text-emerald-700" title="Homologação ativa — profile imutável">🔒 homologado</span>
+		case "revoked":
+			<span class="text-xs text-rose-700" title={ revokedTooltip(in.HomologationByProfile[p.ID]) }>🔓 revogado</span>
+		case "homologated_legacy":
+			<span class="text-xs text-emerald-700" title="Profile homologado — imutável">🔒 homologado</span>
+		default:
+			<a href={ templ.URL("/templates/" + p.ID.String() + "/edit") } class="text-sm text-sentinel-700 hover:text-sentinel-900">Editar</a>
+	}
+}
+
+// homologationFlavor classifica o profile pra escolher a action correta.
+// Centraliza a lógica num único ponto pra UI ficar consistente entre coluna
+// Status e coluna Ações.
+func homologationFlavor(p tmpl.Profile, in ListInput) string {
+	if rec, ok := in.HomologationByProfile[p.ID]; ok {
+		if rec.Status == hom.StatusHomologated {
+			return "active"
+		}
+		return "revoked"
+	}
+	if p.IsHomologated {
+		return "homologated_legacy"
+	}
+	return "editable"
+}
+
+// revokedTooltip — formata "Revogado em DD/MM/YYYY HH:MM (motivo)" pra title=.
+// Quando DeprecatedAt veio nulo (registro antigo sem a coluna), cai num
+// fallback discreto em vez de explodir num "<nil>".
+func revokedTooltip(rec hom.ModelHomologation) string {
+	when := "—"
+	if rec.DeprecatedAt != nil {
+		when = rec.DeprecatedAt.Format("02/01/2006 15:04")
+	}
+	if rec.DeprecatedReason != "" {
+		return "Revogado em " + when + " · " + rec.DeprecatedReason
+	}
+	return "Revogado em " + when
 }
 
 // vendorModelLabel resolve nome legível do vendor/modelo. Genérico → "—".

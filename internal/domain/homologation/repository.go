@@ -88,4 +88,14 @@ type ModelHomologationRepo interface {
 	// na UI (abas Wireless/Internet/LAN). Retorna ErrModelHomologationNotFound
 	// se o modelo não tem nenhuma homologação ativa.
 	FindActiveByModel(ctx context.Context, modelID uuid.UUID) (*ModelHomologation, error)
+
+	// LatestByProfiles devolve a homologação mais recente de cada profile_id,
+	// preferindo `status='homologated'` quando coexistem registros ativos e
+	// deprecated para o mesmo profile. Profiles sem nenhum registro ficam
+	// ausentes do mapa (ex.: profiles manuais nunca homologados).
+	//
+	// Usado pela listagem /templates pra exibir o estado real (Homologado vs
+	// Revogado) — sem isso, um profile homologado e depois revogado continua
+	// aparecendo como "Ativo" porque Profile.IsHomologated é imutável.
+	LatestByProfiles(ctx context.Context, profileIDs []uuid.UUID) (map[uuid.UUID]ModelHomologation, error)
 }

@@ -55,17 +55,35 @@ func (h *TemplatesHandler) List(w http.ResponseWriter, r *http.Request) {
 		models, _ = h.Models.ListByVendor(r.Context(), *f.VendorID)
 	}
 
+	// Carrega estado de homologação de cada profile pra distinguir "Homologado"
+	// (registro com status='homologated') de "Revogado" (apenas deprecated).
+	// Se HomModel não está wired (testes), o mapa fica vazio e a UI cai no
+	// fallback de IsActive/IsHomologated do Profile.
+	homByProfile := map[uuid.UUID]hom.ModelHomologation{}
+	if h.HomModel != nil && len(profiles) > 0 {
+		ids := make([]uuid.UUID, 0, len(profiles))
+		for _, p := range profiles {
+			ids = append(ids, p.ID)
+		}
+		if m, herr := h.HomModel.LatestByProfiles(r.Context(), ids); herr == nil {
+			homByProfile = m
+		} else {
+			logger.FromContext(r.Context()).Warn("templates list: latest homologations", "err", herr)
+		}
+	}
+
 	csrf := mw.CSRFTokenFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tplpages.List(tplpages.ListInput{
-		Profiles:   profiles,
-		Vendors:    vendors,
-		Models:     models,
-		Search:     f.Search,
-		VendorID:   q.Get("vendor"),
-		ModelID:    q.Get("model"),
-		ActiveOnly: f.ActiveOnly,
-		CSRF:       csrf,
+		Profiles:              profiles,
+		Vendors:               vendors,
+		Models:                models,
+		Search:                f.Search,
+		VendorID:              q.Get("vendor"),
+		ModelID:               q.Get("model"),
+		ActiveOnly:            f.ActiveOnly,
+		HomologationByProfile: homByProfile,
+		CSRF:                  csrf,
 	}).Render(r.Context(), w)
 }
 

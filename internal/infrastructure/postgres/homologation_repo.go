@@ -647,6 +647,41 @@ func (r *ModelHomologationRepo) FindActiveByModel(ctx context.Context, modelID u
 	return &h, nil
 }
 
+// LatestByProfiles — uma chamada SQL devolve, pra cada profile_id da lista, o
+// registro mais recente preferindo o status ativo (homologated) quando há
+// ambos. Usa DISTINCT ON com ORDER BY composta — estável no Postgres.
+func (r *ModelHomologationRepo) LatestByProfiles(ctx context.Context, profileIDs []uuid.UUID) (map[uuid.UUID]hom.ModelHomologation, error) {
+	out := make(map[uuid.UUID]hom.ModelHomologation, len(profileIDs))
+	if len(profileIDs) == 0 {
+		return out, nil
+	}
+	const q = `
+		SELECT DISTINCT ON (profile_id)
+		       id, model_id, profile_id, session_id, homologated_by,
+		       homologated_at, status, deprecated_at, COALESCE(deprecated_reason,'')
+		  FROM model_homologations
+		 WHERE profile_id = ANY($1)
+		 ORDER BY profile_id,
+		          (status = 'homologated') DESC,
+		          homologated_at DESC`
+	rows, err := r.pool.Query(ctx, q, profileIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h hom.ModelHomologation
+		var status string
+		if err := rows.Scan(&h.ID, &h.ModelID, &h.ProfileID, &h.SessionID, &h.HomologatedBy,
+			&h.HomologatedAt, &status, &h.DeprecatedAt, &h.DeprecatedReason); err != nil {
+			return nil, err
+		}
+		h.Status = hom.HomologationStatus(status)
+		out[h.ProfileID] = h
+	}
+	return out, rows.Err()
+}
+
 func (r *ModelHomologationRepo) Deprecate(ctx context.Context, id uuid.UUID, reason string) error {
 	const q = `
 		UPDATE model_homologations
