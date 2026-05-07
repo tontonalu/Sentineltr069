@@ -321,6 +321,10 @@ func run() error {
 		)
 		deviceTabsH = &handlers.DeviceTabsHandler{
 			Devices:     deviceRepo,
+			Vendors:     vendorRepo,
+			Models:      modelRepo,
+			Customers:   customerRepo,
+			POPs:        popRepo,
 			ProfileView: profileViewSvc,
 			Telemetry:   telemetryRepo,
 		}

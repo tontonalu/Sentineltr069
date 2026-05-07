@@ -4,58 +4,167 @@ import (
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 )
 
-// TabDevice — aba "Dispositivo" (informações gerais + ações + categoria
-// 'device' do profile homologado).
+// TabDevice — aba "Dispositivo".
+//
+// Layout em duas seções:
+//
+//  1. Identificação — todos os dados do CPE conhecidos pelo inventário
+//     (Status, Serial, MAC, OUI, Vendor, Modelo, Firmware, IP WAN, Cliente,
+//     PPPoE, POP, Último inform). Tudo read-only por natureza.
+//
+//  2. Informações TR-069 — campos extras vindos da homologação que NÃO
+//     estão na Identificação (uptime, hardware revision, spec version,
+//     provisioning code, etc). Filtramos as redundâncias com a seção 1.
 templ TabDevice(in TabInput) {
 	<div class="space-y-4">
-		<section class="rounded-lg bg-white p-4 shadow">
-			<h3 class="mb-3 text-sm font-medium text-sentinel-700">Identificação</h3>
-			<dl class="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-				<div>
-					<dt class="text-xs text-sentinel-500">Status</dt>
-					<dd class="mt-1">@statusBadge(in.Device.Status)</dd>
-				</div>
-				<div>
-					<dt class="text-xs text-sentinel-500">Serial</dt>
-					<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.SerialNumber, "—") }</dd>
-				</div>
-				<div>
-					<dt class="text-xs text-sentinel-500">MAC</dt>
-					<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.MAC, "—") }</dd>
-				</div>
-				<div>
-					<dt class="text-xs text-sentinel-500">Firmware</dt>
-					<dd class="mt-1 text-sentinel-900">{ defaultStr(in.Device.FirmwareVersion, "—") }</dd>
-				</div>
-				<div>
-					<dt class="text-xs text-sentinel-500">IP WAN</dt>
-					<dd class="mt-1 font-mono text-sentinel-900">
-						if in.Device.IPWAN != nil {
-							{ in.Device.IPWAN.String() }
-						} else {
-							—
-						}
-					</dd>
-				</div>
-				<div>
-					<dt class="text-xs text-sentinel-500">Último inform</dt>
-					<dd class="mt-1 text-sentinel-900">
-						if in.Device.LastInformAt != nil {
-							{ in.Device.LastInformAt.Format("02/01/2006 15:04") }
-						} else {
-							nunca
-						}
-					</dd>
-				</div>
-			</dl>
-		</section>
+		@identificacaoCard(in)
 
-		if in.View == nil || !in.View.HasHomologation {
-			@homologationMissingBanner(in)
+		if in.View != nil && in.View.HasHomologation {
+			@deviceExtrasCard(in)
 		} else {
-			@categoryFields(in.Device.ID.String(), in.View, hom.CategoryDevice, in.CSRFToken, in.CanEdit)
+			@homologationMissingBanner(in)
 		}
 	</div>
+}
+
+// identificacaoCard — Identificação completa do CPE, em definition list
+// 3-col responsiva. Linhas vazias ficam ocultas (não polui com "—" extra).
+templ identificacaoCard(in TabInput) {
+	<section class="rounded-lg bg-white p-5 shadow">
+		<h3 class="mb-4 text-sm font-semibold text-sentinel-700">Identificação</h3>
+		<dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Status</dt>
+				<dd class="mt-1">@statusBadge(in.Device.Status)</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Último inform</dt>
+				<dd class="mt-1 text-sentinel-900">
+					if in.Device.LastInformAt != nil {
+						{ in.Device.LastInformAt.Format("02/01/2006 15:04:05") }
+					} else {
+						<span class="text-sentinel-400">nunca</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Último boot</dt>
+				<dd class="mt-1 text-sentinel-900">
+					if in.Device.LastBootAt != nil {
+						{ in.Device.LastBootAt.Format("02/01/2006 15:04:05") }
+					} else {
+						<span class="text-sentinel-400">—</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Serial</dt>
+				<dd class="mt-1 font-mono text-sentinel-900 break-all">{ defaultStr(in.Device.SerialNumber, "—") }</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">MAC</dt>
+				<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.MAC, "—") }</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">OUI</dt>
+				<dd class="mt-1 font-mono text-sentinel-900">{ defaultStr(in.Device.OUI, "—") }</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Vendor</dt>
+				<dd class="mt-1 text-sentinel-900">
+					if in.Vendor != nil {
+						{ in.Vendor.Name }
+					} else {
+						<span class="text-sentinel-400">—</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Modelo</dt>
+				<dd class="mt-1 text-sentinel-900">
+					if in.Model != nil {
+						{ in.Model.Model }
+						<span class="ml-1 rounded bg-sentinel-50 px-1.5 text-[10px] font-medium uppercase tracking-wider text-sentinel-500">{ in.Model.TRDataModel }</span>
+					} else {
+						<span class="text-sentinel-400">—</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Firmware</dt>
+				<dd class="mt-1 font-mono text-sentinel-900 break-all">{ defaultStr(in.Device.FirmwareVersion, "—") }</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">IP WAN</dt>
+				<dd class="mt-1 font-mono text-sentinel-900">
+					if in.Device.IPWAN != nil {
+						{ in.Device.IPWAN.String() }
+					} else {
+						<span class="text-sentinel-400">—</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">POP</dt>
+				<dd class="mt-1 text-sentinel-900">
+					if in.POP != nil {
+						{ in.POP.Name }
+					} else {
+						<span class="text-sentinel-400">não atribuído</span>
+					}
+				</dd>
+			</div>
+			if in.Customer != nil {
+				<div class="sm:col-span-2 lg:col-span-3">
+					<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Cliente</dt>
+					<dd class="mt-1 flex flex-wrap items-center gap-x-3 text-sentinel-900">
+						<span class="font-medium">{ in.Customer.FullName }</span>
+						if in.Customer.PPPoELogin != "" {
+							<span class="rounded bg-sentinel-50 px-1.5 py-0.5 font-mono text-xs text-sentinel-700">
+								PPPoE: { in.Customer.PPPoELogin }
+							</span>
+						}
+						if in.Customer.PlanName != "" {
+							<span class="rounded bg-sentinel-50 px-1.5 py-0.5 text-xs text-sentinel-700">
+								Plano: { in.Customer.PlanName }
+							</span>
+						}
+					</dd>
+				</div>
+			}
+			if len(in.Device.Tags) > 0 {
+				<div class="sm:col-span-2 lg:col-span-3">
+					<dt class="text-[11px] uppercase tracking-wider text-sentinel-500">Tags</dt>
+					<dd class="mt-1 flex flex-wrap gap-1.5">
+						for _, t := range in.Device.Tags {
+							<span class="rounded-full bg-sentinel-100 px-2 py-0.5 text-xs text-sentinel-700">{ t }</span>
+						}
+					</dd>
+				</div>
+			}
+		</dl>
+	</section>
+}
+
+// deviceExtrasCard — campos da categoria 'device' que não estão em
+// Identificação (uptime, hardware version, spec version, etc). Filtramos
+// duplicações de canonical_keys já cobertas pelo Device entity.
+templ deviceExtrasCard(in TabInput) {
+	if g, ok := in.View.GroupsByCategory[hom.CategoryDevice]; ok {
+		<section class="rounded-lg bg-white p-5 shadow">
+			<h3 class="mb-3 text-sm font-semibold text-sentinel-700">Informações TR-069</h3>
+			<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+				for _, f := range filterRedundantDeviceFields(g.Fields) {
+					@FieldRow(FieldRowInput{
+						DeviceID:  in.Device.ID,
+						Field:     f,
+						CSRFToken: in.CSRFToken,
+						CanEdit:   in.CanEdit,
+					})
+				}
+			</div>
+		</section>
+	}
 }
 
 // homologationMissingBanner — mostrado quando o modelo do device não tem
@@ -64,14 +173,11 @@ templ homologationMissingBanner(in TabInput) {
 	<section class="rounded-lg border border-amber-300 bg-amber-50 p-4">
 		<h3 class="text-sm font-semibold text-amber-900">Modelo não homologado</h3>
 		<p class="mt-1 text-xs text-amber-800">
-			Este device só exibe dados básicos porque o modelo
-			if in.View != nil && in.Device.ModelID != nil {
-				atribuído
-			}
+			Este device exibe apenas a Identificação básica porque o modelo
 			ainda não tem um profile homologado. Inicie o wizard em
-			<a href="/homologation" class="underline">/homologation</a>
-			para mapear os parâmetros do modelo e desbloquear as abas Internet,
-			Wireless, LAN, VoIP.
+			<a href="/homologation" class="underline font-medium">/homologation</a>
+			para mapear os parâmetros e desbloquear as abas Internet,
+			Wireless, LAN e VoIP.
 		</p>
 	</section>
 }

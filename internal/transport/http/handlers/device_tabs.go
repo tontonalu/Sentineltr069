@@ -27,8 +27,15 @@ import (
 // DeviceTabsHandler — handlers ortogonais ao DevicesHandler. Mantemos
 // separados porque dependem do ProfileViewSvc + Telemetry repo (opcionais),
 // enquanto DevicesHandler é o CRUD básico que sempre existe.
+//
+// Vendors/Models/Customers/POPs são lookups secundários para enriquecer
+// a aba "Dispositivo" (Identificação completa com fabricante, plano, PPPoE).
 type DeviceTabsHandler struct {
 	Devices     domain.DeviceRepository
+	Vendors     domain.VendorRepository
+	Models      domain.DeviceModelRepository
+	Customers   domain.CustomerRepository
+	POPs        domain.POPRepository
 	ProfileView *devapp.Service
 	Telemetry   tele.Repository
 }
@@ -58,8 +65,16 @@ func (h *DeviceTabsHandler) Tab(w http.ResponseWriter, r *http.Request) {
 
 	switch name {
 	case "device":
+		vendor, model, customer, pop := h.loadIdentificationLookups(r, dev)
 		_ = devicepages.TabDevice(devicepages.TabInput{
-			Device: *dev, View: pv, CSRFToken: csrf, CanEdit: canEdit,
+			Device:    *dev,
+			Vendor:    vendor,
+			Model:     model,
+			Customer:  customer,
+			POP:       pop,
+			View:      pv,
+			CSRFToken: csrf,
+			CanEdit:   canEdit,
 		}).Render(r.Context(), w)
 	case "internet":
 		_ = devicepages.TabCategory(devicepages.CategoryInput{
@@ -162,6 +177,41 @@ func (h *DeviceTabsHandler) deviceFromURL(w http.ResponseWriter, r *http.Request
 		return uuid.Nil, nil, false
 	}
 	return id, d, true
+}
+
+// loadIdentificationLookups — Vendor/Model/Customer/POP do device. Tolerante
+// a erros: se uma das queries falhar, segue com nil naquele slot. Não há
+// motivo para abortar a aba inteira por causa de um lookup secundário.
+func (h *DeviceTabsHandler) loadIdentificationLookups(r *http.Request, d *domain.Device) (
+	*domain.Vendor, *domain.DeviceModel, *domain.Customer, *domain.POP,
+) {
+	var (
+		vendor   *domain.Vendor
+		model    *domain.DeviceModel
+		customer *domain.Customer
+		pop      *domain.POP
+	)
+	if d.ModelID != nil && h.Models != nil {
+		if m, err := h.Models.GetByID(r.Context(), *d.ModelID); err == nil {
+			model = m
+			if h.Vendors != nil {
+				if v, err := h.Vendors.GetByID(r.Context(), m.VendorID); err == nil {
+					vendor = v
+				}
+			}
+		}
+	}
+	if d.CustomerID != nil && h.Customers != nil {
+		if c, err := h.Customers.GetByID(r.Context(), *d.CustomerID); err == nil {
+			customer = c
+		}
+	}
+	if d.POPID != nil && h.POPs != nil {
+		if p, err := h.POPs.GetByID(r.Context(), *d.POPID); err == nil {
+			pop = p
+		}
+	}
+	return vendor, model, customer, pop
 }
 
 // loadHosts — última janela de 15 min do TimescaleDB.

@@ -3,6 +3,8 @@ package devices
 import (
 	"strconv"
 
+	"github.com/google/uuid"
+
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	"github.com/celinet/sentinel-acs/internal/views/components"
 	"github.com/celinet/sentinel-acs/internal/views/layouts"
@@ -17,6 +19,11 @@ type ListInput struct {
 	Total    int
 	Page     int
 	PageSize int
+
+	// CustomersByDevice mapeia device.ID → customer (resolvido em batch
+	// no handler). Usado para mostrar PPPoE login na linha sem precisar
+	// fan-out de query no template.
+	CustomersByDevice map[uuid.UUID]*domain.Customer
 
 	// Filtros aplicados (vêm da query string)
 	SelectedPOP    string
@@ -48,22 +55,22 @@ templ List(in ListInput) {
 					@components.EmptyState("router", "Nenhum device encontrado", "Ajuste os filtros ou aguarde o próximo ciclo de sincronização.")
 				} else {
 					@components.Table(true) {
-						@components.TableHeader([]string{"Status", "Serial / ID", "MAC", "Firmware", "IP WAN", "Último inform"})
+						@components.TableHeader([]string{"Status", "Serial", "Cliente / PPPoE", "MAC", "Firmware", "IP WAN", "Último inform"})
 						<tbody>
 							for _, d := range in.Devices {
 								<tr>
 									<td>@statusBadge(d.Status)</td>
 									<td>
-										<a href={ templ.URL("/devices/" + d.ID.String()) } class="font-medium text-sentinel-900 hover:underline">
+										<a href={ templ.URL("/devices/" + d.ID.String()) } class="font-mono font-medium text-sentinel-900 hover:underline">
 											if d.SerialNumber != "" {
 												{ d.SerialNumber }
 											} else {
 												{ d.GenieACSID }
 											}
 										</a>
-										if d.SerialNumber != "" {
-											<div class="text-xs text-sentinel-500">{ d.GenieACSID }</div>
-										}
+									</td>
+									<td>
+										@customerCell(in.CustomersByDevice[d.ID])
 									</td>
 									<td class="font-mono text-xs text-sentinel-700">{ d.MAC }</td>
 									<td class="text-sentinel-700">{ d.FirmwareVersion }</td>
@@ -132,6 +139,19 @@ templ filtersBar(in ListInput) {
 			<a href="/devices" class="btn-ghost">Limpar</a>
 		</div>
 	</form>
+}
+
+// customerCell — renderiza nome do cliente + PPPoE login. Sem cliente
+// vinculado, mostra placeholder discreto.
+templ customerCell(c *domain.Customer) {
+	if c == nil {
+		<span class="text-sentinel-400 text-xs">—</span>
+	} else {
+		<div class="text-sentinel-900 text-sm">{ c.FullName }</div>
+		if c.PPPoELogin != "" {
+			<div class="font-mono text-[11px] text-sentinel-500">{ c.PPPoELogin }</div>
+		}
+	}
 }
 
 // statusBadge — wrapper sobre components.BadgeWithDot com mapeamento

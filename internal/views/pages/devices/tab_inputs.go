@@ -13,8 +13,16 @@ import (
 )
 
 // TabInput — payload da aba "Dispositivo" (e default).
+//
+// Vendor/Model/Customer/POP são lookups rasos para enriquecer a
+// Identificação com nome do fabricante, plano do cliente e PPPoE login —
+// dados que fazem mais sentido na aba do que campos TR-069 redundantes.
 type TabInput struct {
 	Device    domain.Device
+	Vendor    *domain.Vendor
+	Model     *domain.DeviceModel
+	Customer  *domain.Customer
+	POP       *domain.POP
 	View      *devapp.DeviceProfileView
 	CSRFToken string
 	CanEdit   bool

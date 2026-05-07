@@ -213,7 +213,11 @@ func (s *Service) LoadProfileView(ctx context.Context, deviceID uuid.UUID) (*Dev
 		s.enrichFromCanonical(ctx, &f)
 
 		// Decide writable: read_status='ok' AND write_status in ('ok','skipped').
-		if m, ok := mappingByKey[p.CanonicalKey]; ok {
+		// Mas vetamos chaves que são logicamente read-only (firmware version,
+		// uptime, MAC, BSSID, status/speed/duplex de portas, sinal óptico, etc):
+		// mesmo que a sessão de homologação tenha marcado write_status='ok',
+		// essas leituras nunca devem virar input editável na UI.
+		if m, ok := mappingByKey[p.CanonicalKey]; ok && !isReadOnlyKey(p.CanonicalKey) {
 			f.Writable = m.WriteStatus == hom.TestOK ||
 				(m.WriteStatus == hom.TestSkipped && p.IsSecret)
 		}
@@ -380,6 +384,50 @@ func categoryLabel(cat string) string {
 		return "VoIP"
 	}
 	return "Outros"
+}
+
+// isReadOnlyKey — canonical_keys que são puramente informacionais e nunca
+// devem virar input editável, mesmo se o homologador marcou write_status='ok'.
+//
+// Critério: são valores que o CPE expõe via TR-069 mas não aceita
+// SetParameterValues (ou aceita silenciosamente sem efeito). Edita-los
+// confunde o operador e gera jobs ruidosos no histórico.
+func isReadOnlyKey(key string) bool {
+	if _, ok := readOnlyKeysExact[key]; ok {
+		return true
+	}
+	for _, prefix := range readOnlyKeyPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// readOnlyKeysExact — match exato.
+var readOnlyKeysExact = map[string]struct{}{
+	"device.firmware.version":  {},
+	"device.uptime":            {},
+	"device.serial":            {},
+	"device.manufacturer":      {},
+	"device.model":             {},
+	"device.hardware.version":  {},
+	"device.product_class":     {},
+	"device.spec_version":      {},
+	"device.provisioning_code": {},
+	"wan.ip":                   {},
+	"wan.mac":                  {},
+	"wifi.bssid.2g":            {},
+	"wifi.bssid.5g":            {},
+	"pon.rx_dbm":               {},
+	"pon.tx_dbm":               {},
+}
+
+// readOnlyKeyPrefixes — todos os portstatus/speed/duplex (port.lanX.*, port.wan.*)
+// são read-only por natureza. Speed/duplex podem ser configurados em alguns
+// modelos avançados, mas a UI atual não suporta esse caso de borda.
+var readOnlyKeyPrefixes = []string{
+	"port.",
 }
 
 // orderedCategories devolve as categorias na ordem que faz sentido na UI:

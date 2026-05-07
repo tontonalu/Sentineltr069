@@ -71,21 +71,34 @@ func (h *DevicesHandler) List(w http.ResponseWriter, r *http.Request) {
 	vendors, _ := h.Vendors.List(r.Context())
 	pops, _ := h.POPs.List(r.Context())
 
+	// Resolve customers em batch (1 query por device é OK para a página
+	// atual — pageSize=50; se virar gargalo trocamos por GetByIDs em lote).
+	customers := make(map[uuid.UUID]*domain.Customer, len(devs))
+	for _, d := range devs {
+		if d.CustomerID == nil {
+			continue
+		}
+		if c, err := h.Customers.GetByID(r.Context(), *d.CustomerID); err == nil {
+			customers[d.ID] = c
+		}
+	}
+
 	csrf := mw.CSRFTokenFromContext(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = devicepages.List(devicepages.ListInput{
-		Devices:        devs,
-		Vendors:        vendors,
-		POPs:           pops,
-		Total:          total,
-		Page:           page,
-		PageSize:       devicesPageSize,
-		SelectedPOP:    popStr,
-		SelectedVendor: vendorStr,
-		SelectedStatus: filter.Status,
-		Search:         filter.Search,
-		CSRFToken:      csrf,
-		CanSync:        h.SyncSvc != nil,
+		Devices:           devs,
+		Vendors:           vendors,
+		POPs:              pops,
+		Total:             total,
+		Page:              page,
+		PageSize:          devicesPageSize,
+		CustomersByDevice: customers,
+		SelectedPOP:       popStr,
+		SelectedVendor:    vendorStr,
+		SelectedStatus:    filter.Status,
+		Search:            filter.Search,
+		CSRFToken:         csrf,
+		CanSync:           h.SyncSvc != nil,
 	}).Render(r.Context(), w)
 }
 

@@ -4,12 +4,13 @@ import (
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
 )
 
-// TabCategory — usada pelas abas Internet/Wireless/LAN/VoIP. Renderiza
-// apenas os fields da categoria solicitada do profile homologado.
+// TabCategory — usada pelas abas Internet/Wireless/LAN/VoIP. Renderiza os
+// fields da categoria solicitada do profile homologado, com sub-grupos
+// quando faz sentido (Wireless é dividido em 2.4 GHz / 5 GHz).
 templ TabCategory(in CategoryInput) {
 	<div class="space-y-3">
 		<header class="flex items-center justify-between">
-			<h3 class="text-sm font-medium text-sentinel-700">{ in.Title }</h3>
+			<h3 class="text-sm font-semibold text-sentinel-700">{ in.Title }</h3>
 			if in.View != nil && in.View.HasHomologation {
 				<span class="text-xs text-sentinel-500">
 					Profile: { in.View.ProfileName } · v{ intToStr(in.View.ProfileVersion) }
@@ -18,31 +19,117 @@ templ TabCategory(in CategoryInput) {
 		</header>
 		if in.View == nil || !in.View.HasHomologation {
 			<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-				Este device não tem profile homologado. Configure em /homologation.
+				Este device não tem profile homologado. Configure em
+				<a href="/homologation" class="underline font-medium">/homologation</a>.
 			</p>
 		} else {
-			@categoryFields(in.Device.ID.String(), in.View, in.Category, in.CSRFToken, in.CanEdit)
+			@categoryBody(in)
 		}
 	</div>
 }
 
-// categoryFields — bloco compartilhado: lista os FieldRow de uma categoria.
-// Se a categoria não existe no profile, mostra placeholder amigável.
-templ categoryFields(deviceID string, view *devapp.DeviceProfileView, category, csrf string, canEdit bool) {
-	if g, ok := view.GroupsByCategory[category]; ok && len(g.Fields) > 0 {
-		<div class="space-y-2">
-			for _, f := range g.Fields {
-				@FieldRow(FieldRowInput{
-					DeviceID:  uuidFromStr(deviceID),
-					Field:     f,
-					CSRFToken: csrf,
-					CanEdit:   canEdit,
-				})
-			}
-		</div>
+// categoryBody — escolhe o layout adequado por categoria.
+templ categoryBody(in CategoryInput) {
+	if g, ok := in.View.GroupsByCategory[in.Category]; ok && len(g.Fields) > 0 {
+		switch in.Category {
+			case "wifi":
+				@wifiSubGroups(in, g.Fields)
+			case "wan":
+				@wanGroups(in, g.Fields)
+			default:
+				@plainFieldGrid(in, g.Fields)
+		}
 	} else {
 		<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
 			Nenhum parâmetro homologado nesta categoria.
 		</p>
 	}
+}
+
+// wifiSubGroups separa rede 2.4 GHz / 5 GHz e demais (sem sufixo claro)
+// em cards distintos. Layout em 2 colunas para aproveitar a tela.
+templ wifiSubGroups(in CategoryInput, fields []devapp.FieldView) {
+	<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+		@wifiBandCard(in, "2.4 GHz", filterWifiBand(fields, "2g"))
+		@wifiBandCard(in, "5 GHz", filterWifiBand(fields, "5g"))
+	</div>
+	if other := filterWifiOther(fields); len(other) > 0 {
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-sentinel-500">Outros parâmetros Wi-Fi</h4>
+			<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+				for _, f := range other {
+					@FieldRow(FieldRowInput{
+						DeviceID:  in.Device.ID,
+						Field:     f,
+						CSRFToken: in.CSRFToken,
+						CanEdit:   in.CanEdit,
+					})
+				}
+			</div>
+		</section>
+	}
+}
+
+templ wifiBandCard(in CategoryInput, title string, fields []devapp.FieldView) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		<h4 class="mb-3 text-sm font-semibold text-sentinel-700">{ title }</h4>
+		if len(fields) == 0 {
+			<p class="text-xs text-sentinel-400">Não mapeado neste profile.</p>
+		} else {
+			<div class="space-y-2">
+				for _, f := range fields {
+					@FieldRow(FieldRowInput{
+						DeviceID:  in.Device.ID,
+						Field:     f,
+						CSRFToken: in.CSRFToken,
+						CanEdit:   in.CanEdit,
+					})
+				}
+			</div>
+		}
+	</section>
+}
+
+// wanGroups separa "PPPoE/Conexão" das outras configurações WAN.
+templ wanGroups(in CategoryInput, fields []devapp.FieldView) {
+	<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+		@wanSubCard(in, "Autenticação PPPoE", filterPPPoEFields(fields))
+		@wanSubCard(in, "Conexão WAN", filterNonPPPoEFields(fields))
+	</div>
+}
+
+templ wanSubCard(in CategoryInput, title string, fields []devapp.FieldView) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		<h4 class="mb-3 text-sm font-semibold text-sentinel-700">{ title }</h4>
+		if len(fields) == 0 {
+			<p class="text-xs text-sentinel-400">Não mapeado neste profile.</p>
+		} else {
+			<div class="space-y-2">
+				for _, f := range fields {
+					@FieldRow(FieldRowInput{
+						DeviceID:  in.Device.ID,
+						Field:     f,
+						CSRFToken: in.CSRFToken,
+						CanEdit:   in.CanEdit,
+					})
+				}
+			</div>
+		}
+	</section>
+}
+
+// plainFieldGrid — layout 2 colunas simples para LAN/VoIP/etc.
+templ plainFieldGrid(in CategoryInput, fields []devapp.FieldView) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+			for _, f := range fields {
+				@FieldRow(FieldRowInput{
+					DeviceID:  in.Device.ID,
+					Field:     f,
+					CSRFToken: in.CSRFToken,
+					CanEdit:   in.CanEdit,
+				})
+			}
+		</div>
+	</section>
 }

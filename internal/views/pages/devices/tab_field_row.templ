@@ -7,101 +7,134 @@ import (
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 )
 
-// FieldRow renderiza 1 linha de configuração — read-only, ou editável com
-// HTMX se o profile tem write_status=ok no mapping correspondente.
+// FieldRow renderiza 1 linha de configuração com 2 layouts distintos:
+//
+//   - Read-only: rótulo + valor em destaque, sem form. Apenas exibição.
+//   - Writable:  inline editor (HTMX swap) com o valor atual já carregado
+//     no input.
+//
+// O TRPath e timestamp ficam num footer discreto, fora do fluxo principal,
+// pra não competir com o conteúdo.
 templ FieldRow(in FieldRowInput) {
-	<div class="field-row rounded border border-sentinel-100 bg-white px-4 py-3" id={ "field-" + in.Field.CanonicalKey }>
-		<div class="flex items-start justify-between gap-4">
-			<div class="min-w-0 flex-1">
-				<div class="text-xs uppercase tracking-wider text-sentinel-500">
-					{ in.Field.Label }
+	if in.Field.Writable && in.CanEdit {
+		@fieldRowEditable(in)
+	} else {
+		@fieldRowReadonly(in)
+	}
+}
+
+// fieldRowReadonly — definition list compact. Sem form, sem botão.
+templ fieldRowReadonly(in FieldRowInput) {
+	<div class="rounded border border-sentinel-100 bg-white px-4 py-3" id={ "field-" + in.Field.CanonicalKey }>
+		<div class="flex items-baseline justify-between gap-3">
+			<dt class="text-xs font-medium uppercase tracking-wider text-sentinel-500">
+				{ in.Field.Label }
+			</dt>
+			<dd class="text-sm font-mono text-sentinel-900 break-all text-right">
+				if in.Field.HasValue {
 					if in.Field.IsSecret {
-						<span class="ml-1 inline-block rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">secret</span>
+						<span class="text-sentinel-500">••••••••</span>
+					} else {
+						{ in.Field.CurrentValue }
 					}
-					if !in.Field.Writable {
-						<span class="ml-1 inline-block rounded bg-sentinel-50 px-1.5 text-[10px] font-medium text-sentinel-500">read-only</span>
-					}
-				</div>
-				if in.Field.Description != "" {
-					<p class="mt-0.5 text-xs text-sentinel-400">{ in.Field.Description }</p>
-				}
-				if in.Field.Writable && in.CanEdit {
-					@fieldEditor(in)
 				} else {
-					@fieldReadonly(in.Field)
+					<span class="text-sentinel-300">—</span>
 				}
-				if in.Field.Error != "" {
-					<p class="mt-1 text-xs text-amber-700">{ in.Field.Error }</p>
-				}
-				if in.EnqueuedJob != uuid.Nil {
-					@fieldJobBanner(in)
-				}
-			</div>
-			<div class="text-right">
-				<div class="text-[10px] font-mono text-sentinel-400">{ in.Field.TRPath }</div>
-				if !in.Field.LastReadAt.IsZero() {
-					<div class="mt-0.5 text-[10px] text-sentinel-400">{ in.Field.LastReadAt.Format("15:04:05") }</div>
-				}
-			</div>
+			</dd>
 		</div>
-	</div>
-}
-
-templ fieldReadonly(f devapp.FieldView) {
-	<div class="mt-1 text-sm font-mono text-sentinel-900">
-		if f.HasValue {
-			{ f.CurrentValue }
-		} else {
-			<span class="text-sentinel-400">—</span>
+		if in.Field.Error != "" {
+			<p class="mt-1 text-[11px] text-amber-700">{ in.Field.Error }</p>
 		}
+		@fieldFooter(in)
 	</div>
 }
 
-templ fieldEditor(in FieldRowInput) {
-	<form
-		method="POST"
-		action={ templ.URL("/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey) }
-		hx-post={ "/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey }
-		hx-target={ "#field-" + in.Field.CanonicalKey }
-		hx-swap="outerHTML"
-		class="mt-2 flex items-center gap-2"
-	>
-		<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
-		if in.Field.IsSecret {
-			<input
-				type="password"
-				name="value"
-				placeholder="••••••••"
-				autocomplete="new-password"
-				class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
-			/>
-		} else if in.Field.DataType == tmpl.DataTypeBool {
-			<select name="value" class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm">
-				if isTruthyValue(in.Field.CurrentValue) {
-					<option value="true" selected>Ativo</option>
-					<option value="false">Inativo</option>
-				} else {
-					<option value="true">Ativo</option>
-					<option value="false" selected>Inativo</option>
+// fieldRowEditable — header com label + badge "editável", form inline em
+// linha separada (input flex-1 + botão à direita).
+templ fieldRowEditable(in FieldRowInput) {
+	<div class="rounded border border-sky-100 bg-white px-4 py-3 shadow-sm" id={ "field-" + in.Field.CanonicalKey }>
+		<div class="flex items-baseline justify-between">
+			<div class="text-xs font-medium uppercase tracking-wider text-sentinel-700">
+				{ in.Field.Label }
+				if in.Field.IsSecret {
+					<span class="ml-1 inline-block rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">secret</span>
 				}
-			</select>
-		} else {
-			<input
-				type={ inputTypeFor(in.Field.DataType) }
-				name="value"
-				value={ in.Field.CurrentValue }
-				class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
-			/>
+			</div>
+			<span class="text-[10px] font-medium uppercase tracking-wider text-sky-700">
+				editável
+			</span>
+		</div>
+		if in.Field.Description != "" {
+			<p class="mt-0.5 text-[11px] text-sentinel-400">{ in.Field.Description }</p>
 		}
-		<button type="submit" class="btn-primary text-xs">Salvar</button>
-	</form>
+		<form
+			method="POST"
+			action={ templ.URL("/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey) }
+			hx-post={ "/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey }
+			hx-target={ "#field-" + in.Field.CanonicalKey }
+			hx-swap="outerHTML"
+			class="mt-2 flex items-center gap-2"
+		>
+			<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
+			@fieldInput(in.Field)
+			<button type="submit" class="btn-primary whitespace-nowrap text-xs">Salvar</button>
+		</form>
+		if in.Field.Error != "" {
+			<p class="mt-1 text-[11px] text-amber-700">{ in.Field.Error }</p>
+		}
+		if in.EnqueuedJob != uuid.Nil {
+			@fieldJobBanner(in)
+		}
+		@fieldFooter(in)
+	</div>
+}
+
+// fieldInput escolhe o widget HTML adequado ao DataType.
+templ fieldInput(f devapp.FieldView) {
+	if f.IsSecret {
+		<input
+			type="password"
+			name="value"
+			placeholder="•••••••• (digite o novo valor)"
+			autocomplete="new-password"
+			class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
+		/>
+	} else if f.DataType == tmpl.DataTypeBool {
+		<select name="value" class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm">
+			if isTruthyValue(f.CurrentValue) {
+				<option value="true" selected>Ativo</option>
+				<option value="false">Inativo</option>
+			} else {
+				<option value="true">Ativo</option>
+				<option value="false" selected>Inativo</option>
+			}
+		</select>
+	} else {
+		<input
+			type={ inputTypeFor(f.DataType) }
+			name="value"
+			value={ f.CurrentValue }
+			class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
+		/>
+	}
+}
+
+// fieldFooter — rodapé discreto: TRPath + horário da última leitura.
+// Útil para debug, mas não polui o fluxo principal.
+templ fieldFooter(in FieldRowInput) {
+	<div class="mt-2 flex items-center justify-between gap-2 border-t border-sentinel-100 pt-1 text-[10px] text-sentinel-400">
+		<span class="font-mono truncate" title={ in.Field.TRPath }>{ in.Field.TRPath }</span>
+		if !in.Field.LastReadAt.IsZero() {
+			<span class="whitespace-nowrap">atualizado { in.Field.LastReadAt.Format("15:04:05") }</span>
+		}
+	</div>
 }
 
 templ fieldJobBanner(in FieldRowInput) {
 	<p class="mt-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
-		Job enfileirado:
+		Job enfileirado —
 		<a href={ templ.URL("/provisioning/jobs/" + in.EnqueuedJob.String()) } class="underline">
-			{ in.EnqueuedJob.String() }
+			{ shortUUID(in.EnqueuedJob) }
 		</a>
 	</p>
 }
@@ -109,7 +142,7 @@ templ fieldJobBanner(in FieldRowInput) {
 // FieldError — fragmento devolvido pelo handler quando UpdateField falha.
 // HTMX troca a linha pelo erro inline; usuário pode tentar de novo.
 templ FieldError(in FieldErrorInput) {
-	<div class="field-row rounded border border-amber-300 bg-amber-50 px-4 py-3" id={ "field-" + in.CanonicalKey }>
+	<div class="rounded border border-amber-300 bg-amber-50 px-4 py-3" id={ "field-" + in.CanonicalKey }>
 		<p class="text-sm text-amber-800">
 			<strong>{ in.CanonicalKey }:</strong> { in.Message }
 		</p>
@@ -139,3 +172,11 @@ func isTruthyValue(v string) bool {
 	return false
 }
 
+// shortUUID — primeiros 8 chars; suficiente para link clicável legível.
+func shortUUID(id uuid.UUID) string {
+	s := id.String()
+	if len(s) >= 8 {
+		return s[:8] + "…"
+	}
+	return s
+}
