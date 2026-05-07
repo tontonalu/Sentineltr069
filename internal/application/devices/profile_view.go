@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 
 	provapp "github.com/celinet/sentinel-acs/internal/application/provisioning"
-	tplapp "github.com/celinet/sentinel-acs/internal/application/templates"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	inv "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
@@ -127,7 +126,6 @@ type Service struct {
 	mappings    MappingsByProfile
 	genie       GenieACSReader
 	provisioner *provapp.Service
-	tplSvc      *tplapp.Service
 }
 
 func NewService(
