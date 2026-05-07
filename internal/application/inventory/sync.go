@@ -20,6 +20,11 @@ import (
 // Paths canônicos lidos no sync. Usamos virtual params primeiro (criados no
 // Pré-req-A da Fase 2); se não existirem, caímos para TR-098 ou TR-181.
 //
+// IMPORTANTE: pedimos as **subárvores inteiras** de WANDevice/PPP/IP quando
+// precisamos varrer múltiplas instâncias (vendors como V-SOL/Realtek/ZTE
+// frequentemente expõem WANConnectionDevice.2 ou .3, não .1). O extractor
+// usa findFirst* abaixo para varrer índices dinamicamente.
+//
 // Manter como var (e não const) para permitir override em testes.
 var SyncProjection = []string{
 	// Metadados GenieACS
@@ -34,22 +39,21 @@ var SyncProjection = []string{
 	"DeviceID.ProductClass",
 	"DeviceID.SerialNumber",
 
-	// TR-098 (legado)
+	// TR-098 (legado) — DeviceInfo + ramos completos para varredura.
 	"InternetGatewayDevice.DeviceInfo.Manufacturer",
 	"InternetGatewayDevice.DeviceInfo.ModelName",
 	"InternetGatewayDevice.DeviceInfo.SoftwareVersion",
 	"InternetGatewayDevice.DeviceInfo.SerialNumber",
-	"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username",
-	"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress",
+	"InternetGatewayDevice.WANDevice",
 	"InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress",
 
-	// TR-181 (atual)
+	// TR-181 (atual) — DeviceInfo + ramos completos.
 	"Device.DeviceInfo.Manufacturer",
 	"Device.DeviceInfo.ModelName",
 	"Device.DeviceInfo.SoftwareVersion",
 	"Device.DeviceInfo.SerialNumber",
-	"Device.PPP.Interface.1.Username",
-	"Device.IP.Interface.1.IPv4Address.1.IPAddress",
+	"Device.PPP",
+	"Device.IP",
 
 	// Virtual Parameters (canônicos definidos no GenieACS)
 	"VirtualParameters.Manufacturer",
@@ -212,17 +216,21 @@ func (s *SyncService) syncDevice(
 		"InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress",
 	)
 
-	pppoeLogin := genieacs.FirstNonEmpty(d.Raw,
-		"VirtualParameters.PPPoEUsername",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username",
-		"Device.PPP.Interface.1.Username",
-	)
+	pppoeLogin := genieacs.FirstNonEmpty(d.Raw, "VirtualParameters.PPPoEUsername")
+	if pppoeLogin == "" {
+		pppoeLogin = findFirstWANField(d.Raw, "Username")
+	}
+	if pppoeLogin == "" {
+		pppoeLogin = findFirstTR181Param(d.Raw, "Device.PPP.Interface", "Username")
+	}
 
-	wanIP := genieacs.FirstNonEmpty(d.Raw,
-		"VirtualParameters.WANIP",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress",
-		"Device.IP.Interface.1.IPv4Address.1.IPAddress",
-	)
+	wanIP := genieacs.FirstNonEmpty(d.Raw, "VirtualParameters.WANIP")
+	if wanIP == "" {
+		wanIP = findFirstWANField(d.Raw, "ExternalIPAddress")
+	}
+	if wanIP == "" {
+		wanIP = findFirstTR181IPv4(d.Raw)
+	}
 
 	// Detecta data model: se houver qualquer campo TR-181, é tr181; senão tr098.
 	trModel := domain.TR098
@@ -463,4 +471,80 @@ func coalesceUUID(a, b *uuid.UUID) *uuid.UUID {
 		return a
 	}
 	return b
+}
+
+// Limites para varredura dinâmica. CPEs típicos têm 1-2 WANConnectionDevice
+// (um por VLAN) e raramente passam de 4 — manter teto baixo para evitar
+// scan exaustivo em devices mal-comportados.
+const (
+	maxWANDeviceInstances    = 2
+	maxWANConnDevInstances   = 4
+	maxWANConnInstances      = 4
+	maxTR181Instances        = 4
+)
+
+// findFirstWANField — varre TR-098 (InternetGatewayDevice.WANDevice.X.
+// WANConnectionDevice.Y.{WANPPPConnection,WANIPConnection}.Z.<field>) até
+// encontrar o primeiro valor não-vazio. Necessário porque vendors como
+// V-SOL/Realtek/ZTE podem expor o uplink em índices diferentes de 1.1.1.
+func findFirstWANField(raw map[string]any, field string) string {
+	connTypes := []string{"WANPPPConnection", "WANIPConnection"}
+	for wd := 1; wd <= maxWANDeviceInstances; wd++ {
+		for cd := 1; cd <= maxWANConnDevInstances; cd++ {
+			for _, ct := range connTypes {
+				for ic := 1; ic <= maxWANConnInstances; ic++ {
+					path := fmt.Sprintf("InternetGatewayDevice.WANDevice.%d.WANConnectionDevice.%d.%s.%d.%s",
+						wd, cd, ct, ic, field)
+					if v := genieacs.ParamString(raw, path); v != "" {
+						return v
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// findFirstTR181Param — varre Device.<prefix>.X.<field> em índices 1..maxTR181Instances.
+// Ex.: prefix="PPP.Interface", field="Username" para login PPPoE TR-181.
+func findFirstTR181Param(raw map[string]any, prefix, field string) string {
+	for i := 1; i <= maxTR181Instances; i++ {
+		path := fmt.Sprintf("Device.%s.%d.%s", prefix, i, field)
+		if v := genieacs.ParamString(raw, path); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// findFirstTR181IPv4 — varre Device.IP.Interface.X.IPv4Address.Y.IPAddress.
+// Devolve o primeiro IP não-vazio que NÃO seja loopback (127.0.0.1) e que
+// não seja link-local (169.254.0.0/16) — esses não são "WAN IP" reais.
+func findFirstTR181IPv4(raw map[string]any) string {
+	for i := 1; i <= maxTR181Instances; i++ {
+		for j := 1; j <= maxTR181Instances; j++ {
+			path := fmt.Sprintf("Device.IP.Interface.%d.IPv4Address.%d.IPAddress", i, j)
+			ip := genieacs.ParamString(raw, path)
+			if ip == "" {
+				continue
+			}
+			if isUsableWANIP(ip) {
+				return ip
+			}
+		}
+	}
+	return ""
+}
+
+// isUsableWANIP descarta IPs que não fazem sentido como "IP WAN":
+// loopback, link-local, e 0.0.0.0.
+func isUsableWANIP(s string) bool {
+	parsed := net.ParseIP(s)
+	if parsed == nil {
+		return false
+	}
+	if parsed.IsUnspecified() || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
+		return false
+	}
+	return true
 }
