@@ -43,9 +43,11 @@ func ParseDeviceFull(now time.Time, deviceID uuid.UUID, raw map[string]any) (
 // Tentamos os caminhos canônicos primeiro (virtual params §7.4) e caímos
 // para TR-098/TR-181 se não houver.
 //
-// Limite: extraímos no máximo 4 SSIDs por device (2 por banda).
-// CPEs típicos têm 2-4 redes ativas; mais que isso é exceção.
-const maxWifiPerDevice = 4
+// Limite: extraímos no máximo 8 SSIDs por device. CPEs como V-SOL V2804AX
+// expõem 8 WLANConfigurations (4 por banda — main, guest, IPTV, etc), e
+// vimos clientes associados em índices 5+ no campo. Samples sem métrica
+// real continuam sendo descartadas via HasAnyMetric.
+const maxWifiPerDevice = 8
 
 func parseWifi(now time.Time, deviceID uuid.UUID, raw map[string]any) []tele.WifiSample {
 	var out []tele.WifiSample
@@ -127,12 +129,24 @@ func bandKey(band string) string {
 }
 
 // countAssociatedTR098 conta sub-objetos AssociatedDevice.{N}.MACAddress.
+// Cai pra `TotalAssociations` (campo escalar) quando o NBI não expandiu a
+// lista — vendor V-SOL/Realtek expõe só o agregado, não os sub-objetos
+// individuais.
 func countAssociatedTR098(raw map[string]any, base string) *int {
-	return countSubObjects(genieacs.ParamObject(raw, base+".AssociatedDevice"))
+	if c := countSubObjects(genieacs.ParamObject(raw, base+".AssociatedDevice")); c != nil {
+		return c
+	}
+	return parseIntPtr(genieacs.ParamString(raw, base+".TotalAssociations"))
 }
 
+// countAssociatedTR181 — TR-181 sempre expõe a lista AssociatedDevice;
+// AssociatedDeviceNumberOfEntries é o fallback quando o NBI não trouxe
+// os filhos (projection limitada).
 func countAssociatedTR181(raw map[string]any, ap string) *int {
-	return countSubObjects(genieacs.ParamObject(raw, ap+".AssociatedDevice"))
+	if c := countSubObjects(genieacs.ParamObject(raw, ap+".AssociatedDevice")); c != nil {
+		return c
+	}
+	return parseIntPtr(genieacs.ParamString(raw, ap+".AssociatedDeviceNumberOfEntries"))
 }
 
 // countSubObjects conta filhos de um nó intermediário do NBI.
@@ -164,31 +178,55 @@ func countSubObjects(m map[string]any) *int {
 
 // ──────────── WAN ────────────
 
+// wanScanIndices — vendors brasileiros (V-SOL/Realtek, ZTE, FiberHome) costumam
+// pôr a conexão WAN ativa em índices > 1 (.2 ou .3). Idem WANIPConnection /
+// WANPPPConnection — o índice da conexão sob o WANConnectionDevice escolhido
+// também varia. Scaneamos um conjunto pequeno e pegamos o primeiro valor
+// não-vazio (já que ConnectionDevices ociosos retornam 0 ou string vazia).
+const (
+	wanScanMaxConnDevice = 4
+	wanScanMaxConnIndex  = 4
+)
+
 func parseWan(now time.Time, deviceID uuid.UUID, raw map[string]any) tele.WanSample {
 	s := tele.WanSample{Time: now, DeviceID: deviceID}
 
-	// Virtual params preferidos.
-	s.RxBytes = parseInt64Ptr(genieacs.FirstNonEmpty(raw,
-		"VirtualParameters.WAN_RxBytes",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.Stats.EthernetBytesReceived",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Stats.EthernetBytesReceived",
-		"Device.IP.Interface.1.Stats.BytesReceived",
-	))
-	s.TxBytes = parseInt64Ptr(genieacs.FirstNonEmpty(raw,
-		"VirtualParameters.WAN_TxBytes",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.Stats.EthernetBytesSent",
-		"InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Stats.EthernetBytesSent",
-		"Device.IP.Interface.1.Stats.BytesSent",
-	))
+	rxPaths := append([]string{"VirtualParameters.WAN_RxBytes"}, wanStatsPaths(raw, "EthernetBytesReceived")...)
+	rxPaths = append(rxPaths, "Device.IP.Interface.1.Stats.BytesReceived")
+	txPaths := append([]string{"VirtualParameters.WAN_TxBytes"}, wanStatsPaths(raw, "EthernetBytesSent")...)
+	txPaths = append(txPaths, "Device.IP.Interface.1.Stats.BytesSent")
+
+	s.RxBytes = parseInt64Ptr(genieacs.FirstNonEmpty(raw, rxPaths...))
+	s.TxBytes = parseInt64Ptr(genieacs.FirstNonEmpty(raw, txPaths...))
 	s.OpticalRxDBM = parseFloatPtr(genieacs.FirstNonEmpty(raw,
 		"VirtualParameters.OpticalRxDBM",
 		"InternetGatewayDevice.X_HW_GponInfo.RxPower",
+		"InternetGatewayDevice.WANDevice.1.X_GponInterafceConfig.RXPower",
 	))
 	s.OpticalTxDBM = parseFloatPtr(genieacs.FirstNonEmpty(raw,
 		"VirtualParameters.OpticalTxDBM",
 		"InternetGatewayDevice.X_HW_GponInfo.TxPower",
+		"InternetGatewayDevice.WANDevice.1.X_GponInterafceConfig.TXPower",
 	))
 	return s
+}
+
+// wanStatsPaths gera a lista de paths candidatos pra um campo de Stats em
+// WANIPConnection e WANPPPConnection, varrendo os índices comuns (1..4). A
+// ordem importa: tentamos IP primeiro (mais comum em DHCP), depois PPP.
+func wanStatsPaths(_ map[string]any, statField string) []string {
+	out := make([]string, 0, wanScanMaxConnDevice*wanScanMaxConnIndex*2)
+	for cd := 1; cd <= wanScanMaxConnDevice; cd++ {
+		for ci := 1; ci <= wanScanMaxConnIndex; ci++ {
+			out = append(out,
+				"InternetGatewayDevice.WANDevice.1.WANConnectionDevice."+strconv.Itoa(cd)+
+					".WANIPConnection."+strconv.Itoa(ci)+".Stats."+statField,
+				"InternetGatewayDevice.WANDevice.1.WANConnectionDevice."+strconv.Itoa(cd)+
+					".WANPPPConnection."+strconv.Itoa(ci)+".Stats."+statField,
+			)
+		}
+	}
+	return out
 }
 
 // ──────────── System ────────────
@@ -198,19 +236,80 @@ func parseSystem(now time.Time, deviceID uuid.UUID, raw map[string]any) tele.Sys
 	s.CPUPct = parseFloatPtr(genieacs.FirstNonEmpty(raw,
 		"VirtualParameters.CPUPct",
 		"InternetGatewayDevice.DeviceInfo.X_HW_CPUUsage",
+		// Realtek/V-SOL TR-098 padrão.
+		"InternetGatewayDevice.DeviceInfo.ProcessStatus.CPUUsage",
 		"Device.DeviceInfo.ProcessStatus.CPUUsage",
 	))
-	s.MemPct = parseFloatPtr(genieacs.FirstNonEmpty(raw,
+	// Memória: virtual/vendor params trazem direto o %; quando não temos,
+	// caímos pra Free+Total e calculamos. É a única forma do TR-098 padrão.
+	if v := genieacs.FirstNonEmpty(raw,
 		"VirtualParameters.MemPct",
 		"InternetGatewayDevice.DeviceInfo.X_HW_MemUsage",
-		"Device.DeviceInfo.MemoryStatus.Free",
-	))
+	); v != "" {
+		s.MemPct = parseFloatPtr(v)
+	} else {
+		s.MemPct = computeMemPct(raw)
+	}
 	s.UptimeSeconds = parseInt64Ptr(genieacs.FirstNonEmpty(raw,
 		"VirtualParameters.UptimeSeconds",
 		"InternetGatewayDevice.DeviceInfo.UpTime",
 		"Device.DeviceInfo.UpTime",
 	))
+	s.TemperatureC = parseTemperature(raw)
 	return s
+}
+
+// computeMemPct — TR-098 padrão expõe `MemoryStatus.Free` e `.Total` em KB
+// (sem campo de uso direto). `% usado = (1 - free/total) * 100`. Retorna
+// nil se faltar qualquer um dos dois ou se total=0 (evita div/zero).
+func computeMemPct(raw map[string]any) *float64 {
+	free := parseFloatPtr(genieacs.FirstNonEmpty(raw,
+		"InternetGatewayDevice.DeviceInfo.MemoryStatus.Free",
+		"Device.DeviceInfo.MemoryStatus.Free",
+	))
+	total := parseFloatPtr(genieacs.FirstNonEmpty(raw,
+		"InternetGatewayDevice.DeviceInfo.MemoryStatus.Total",
+		"Device.DeviceInfo.MemoryStatus.Total",
+	))
+	if free == nil || total == nil || *total <= 0 {
+		return nil
+	}
+	pct := (1 - *free/(*total)) * 100
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return &pct
+}
+
+// parseTemperature percorre TemperatureSensor.{1..maxTempSensors} e devolve a
+// maior leitura encontrada — quando o CPE expõe múltiplos sensores (módulo
+// óptico, board, CPU), o maior é o que a operação se importa.
+const maxTempSensors = 4
+
+func parseTemperature(raw map[string]any) *float64 {
+	var max *float64
+	for i := 1; i <= maxTempSensors; i++ {
+		v := parseFloatPtr(genieacs.FirstNonEmpty(raw,
+			"InternetGatewayDevice.DeviceInfo.TemperatureStatus.TemperatureSensor."+strconv.Itoa(i)+".Value",
+			"Device.DeviceInfo.TemperatureStatus.TemperatureSensor."+strconv.Itoa(i)+".Value",
+		))
+		if v == nil {
+			continue
+		}
+		if max == nil || *v > *max {
+			max = v
+		}
+	}
+	if max == nil {
+		// VirtualParameters como último recurso.
+		if v := parseFloatPtr(genieacs.ParamString(raw, "VirtualParameters.TemperatureC")); v != nil {
+			max = v
+		}
+	}
+	return max
 }
 
 // ──────────── inference helpers ────────────

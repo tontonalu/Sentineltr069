@@ -1,13 +1,39 @@
 package devices
 
+import (
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
+)
+
 // TabStats — aba "Estatísticas" embutida na página de detalhe. Reusa o
 // renderer SVG `dualLineSVG` definido em history.templ.
+//
+// Estrutura:
+//   - KPIs no header (último valor coletado)
+//   - Botão "Atualizar agora" (POST refresh-telemetry, cooldown 30s)
+//   - Cards com os mini-charts: Wi-Fi clients / CPU+Mem / WAN bytes / Temperatura
 templ TabStats(in StatsInput) {
 	<div class="space-y-4">
-		<header class="flex items-center justify-between">
-			<h3 class="text-sm font-medium text-sentinel-700">Estatísticas (últimas { rangeLabel(in.Range) })</h3>
-			@statsRangeSelector(in.Device.ID.String(), in.Range)
+		<header class="flex flex-wrap items-center justify-between gap-2">
+			<div>
+				<h3 class="text-sm font-medium text-sentinel-700">Estatísticas (últimas { rangeLabel(in.Range) })</h3>
+				<p class="text-[11px] text-sentinel-500 mt-0.5">
+					Coleta a cada 5 min. Use "Atualizar agora" pra forçar uma leitura imediata.
+				</p>
+			</div>
+			<div class="flex items-center gap-2">
+				if in.CanRefreshTelemetry {
+					<div id={ refreshContainerID(in.Device.ID) }>
+						@refreshButton(in.Device.ID)
+					</div>
+				}
+				@statsRangeSelector(in.Device.ID.String(), in.Range)
+			</div>
 		</header>
+
+		@statsKPIs(in)
 
 		<section class="rounded-lg bg-white p-4 shadow">
 			<h4 class="mb-2 text-xs font-medium text-sentinel-700">Clientes Wi-Fi</h4>
@@ -48,6 +74,15 @@ templ TabStats(in StatsInput) {
 			}
 		</section>
 
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-2 text-xs font-medium text-sentinel-700">Temperatura (°C)</h4>
+			if len(in.TempSeries) == 0 {
+				<p class="text-xs text-sentinel-500">Sem dados — sensor de temperatura não exposto pelo CPE ou ainda não coletado.</p>
+			} else {
+				@dualLineSVG(in.TempSeries, nil, "#DC2626", "#000000")
+			}
+		</section>
+
 		<p class="text-[10px] text-sentinel-400">
 			Para visão completa veja
 			<a href={ templ.URL("/devices/" + in.Device.ID.String() + "/history?range=" + in.Range) } class="underline">
@@ -55,6 +90,104 @@ templ TabStats(in StatsInput) {
 			</a>
 		</p>
 	</div>
+}
+
+// statsKPIs — bloco de 4 quadradinhos com último valor coletado. Visualmente
+// pequeno, mas dá feedback imediato de "tem coleta acontecendo".
+templ statsKPIs(in StatsInput) {
+	<dl class="grid grid-cols-2 gap-2 md:grid-cols-4">
+		@kpiCard("Clientes Wi-Fi", kpiInt(in.LatestWifiClients), "")
+		@kpiCard("CPU", kpiPct(in.LatestCPUPct), "%")
+		@kpiCard("Memória", kpiPct(in.LatestMemPct), "%")
+		@kpiCard("Temperatura", kpiPct(in.LatestTemperatureC), "°C")
+	</dl>
+}
+
+templ kpiCard(label, value, suffix string) {
+	<div class="rounded-lg bg-white p-3 shadow-sm">
+		<dt class="text-[10px] uppercase tracking-wider text-sentinel-500">{ label }</dt>
+		<dd class="mt-1 text-lg font-semibold text-sentinel-900">
+			{ value }
+			if suffix != "" && value != "—" {
+				<span class="text-xs font-normal text-sentinel-500"> { suffix }</span>
+			}
+		</dd>
+	</div>
+}
+
+// refreshButton — botão simples; HTMX faz POST e o handler devolve um
+// fragmento RefreshResult que substitui o conteúdo do contêiner.
+templ refreshButton(deviceID uuid.UUID) {
+	<button
+		type="button"
+		class="btn-ghost text-xs"
+		hx-post={ "/devices/" + deviceID.String() + "/refresh-telemetry" }
+		hx-target={ "#" + refreshContainerID(deviceID) }
+		hx-swap="innerHTML"
+	>↻ Atualizar agora</button>
+}
+
+// RefreshResult — fragmento devolvido pelo POST refresh-telemetry. Tons
+// diferentes pra OK vs cooldown. O botão original é re-renderizado depois
+// de NextRetryIn segundos (load delay) — assim o operador volta a poder
+// disparar sem precisar recarregar a página.
+templ RefreshResult(in RefreshResultInput) {
+	if in.OK {
+		<div class="text-xs text-emerald-700 flex items-center gap-2">
+			<span>✓ { in.Message }</span>
+			@deferredRefreshButton(in.DeviceID, 30)
+		</div>
+	} else {
+		<div class="text-xs text-amber-700 flex items-center gap-2">
+			<span>⏱ { in.Message }</span>
+			@deferredRefreshButton(in.DeviceID, retrySeconds(in.NextRetryIn))
+		</div>
+	}
+}
+
+// deferredRefreshButton — placeholder que se troca por refreshButton após
+// `delay` segundos. Implementado com hx-get="…/refresh-telemetry/button"
+// que devolve o template do botão. Mantém UI consistente sem reload.
+templ deferredRefreshButton(id uuid.UUID, delay int) {
+	<span
+		hx-get={ "/devices/" + id.String() + "/refresh-telemetry/button" }
+		hx-trigger={ "load delay:" + strconv.Itoa(delay) + "s" }
+		hx-swap="outerHTML"
+	></span>
+}
+
+// RefreshButtonOnly — renderizado pelo endpoint que devolve só o botão.
+templ RefreshButtonOnly(deviceID uuid.UUID) {
+	@refreshButton(deviceID)
+}
+
+func retrySeconds(d time.Duration) int {
+	if d <= 0 {
+		return 30
+	}
+	return int(d.Seconds() + 0.5)
+}
+
+func refreshContainerID(id uuid.UUID) string {
+	return "refresh-" + id.String()
+}
+
+func kpiInt(p *int) string {
+	if p == nil {
+		return "—"
+	}
+	return strconv.Itoa(*p)
+}
+
+func kpiPct(p *float64) string {
+	if p == nil {
+		return "—"
+	}
+	// 1 casa quando < 10, sem casas quando ≥ 10 — leitura mais natural.
+	if *p < 10 {
+		return strconv.FormatFloat(*p, 'f', 1, 64)
+	}
+	return strconv.FormatFloat(*p, 'f', 0, 64)
 }
 
 templ statsRangeSelector(deviceID, current string) {

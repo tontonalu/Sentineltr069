@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	sa "github.com/celinet/sentinel-acs"
 
 	// blank import força o registro do plugin Voalle (e futuros) no registry global.
 	_ "github.com/celinet/sentinel-acs/internal/infrastructure/erp/voalle"
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
+	diagapp "github.com/celinet/sentinel-acs/internal/application/diagnostics"
 	homapp "github.com/celinet/sentinel-acs/internal/application/homologation"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	appidentity "github.com/celinet/sentinel-acs/internal/application/identity"
@@ -319,14 +321,25 @@ func run() error {
 			genieClient,
 			provService,
 		)
+		// Diagnostics (ping/traceroute) — service usa um deviceResolver
+		// inline pra resolver genieacs_id sem criar dependência circular.
+		// Repo opcional: se nil, rotas de diagnostic ficam fora.
+		diagRepo := pgdb.NewDiagnosticsRepo(pgPool)
+		diagSvc := diagapp.NewService(diagRepo,
+			&deviceResolver{repo: deviceRepo}, genieClient,
+		)
 		deviceTabsH = &handlers.DeviceTabsHandler{
-			Devices:     deviceRepo,
-			Vendors:     vendorRepo,
-			Models:      modelRepo,
-			Customers:   customerRepo,
-			POPs:        popRepo,
-			ProfileView: profileViewSvc,
-			Telemetry:   telemetryRepo,
+			Devices:         deviceRepo,
+			Vendors:         vendorRepo,
+			Models:          modelRepo,
+			Customers:       customerRepo,
+			POPs:            popRepo,
+			ProfileView:     profileViewSvc,
+			Telemetry:       telemetryRepo,
+			GenieACS:        genieClient,
+			RefreshGate:     handlers.NewRefreshGate(30 * time.Second),
+			Diagnostics:     diagSvc,
+			DiagnosticsRepo: diagRepo,
 		}
 	}
 
@@ -563,6 +576,24 @@ func run() error {
 				r.Get("/{id}/tabs/{name}", deviceTabsH.Tab)
 				r.With(mw.RequirePermission("device", "configure")).
 					Post("/{id}/fields/{canonical_key}", deviceTabsH.UpdateField)
+
+				// Refresh manual da telemetria — exige telemetry.read pra evitar
+				// que viewers anônimos esmaguem o GenieACS. Cooldown 30s/device
+				// é aplicado pelo handler.
+				r.With(mw.RequirePermission("telemetry", "read")).
+					Post("/{id}/refresh-telemetry", deviceTabsH.RefreshTelemetry)
+				r.With(mw.RequirePermission("telemetry", "read")).
+					Get("/{id}/refresh-telemetry/button", deviceTabsH.RefreshButton)
+
+				// Diagnósticos remotos — gate device.diagnose. Fragmentos HTMX
+				// auto-polling: o GET é chamado a cada 2s pelo cliente até o
+				// status ficar terminal (complete/error/timeout).
+				r.With(mw.RequirePermission("device", "diagnose")).
+					Post("/{id}/diagnostics/ping", deviceTabsH.RunPing)
+				r.With(mw.RequirePermission("device", "diagnose")).
+					Post("/{id}/diagnostics/traceroute", deviceTabsH.RunTraceroute)
+				r.With(mw.RequirePermission("device", "diagnose")).
+					Get("/{id}/diagnostics/{diag_id}", deviceTabsH.DiagnosticFragment)
 			}
 		})
 
@@ -708,6 +739,19 @@ func run() error {
 	}
 	log.Info("bye")
 	return nil
+}
+
+// deviceResolver — adapter mínimo entre o diagnostics service e o DeviceRepo.
+// Tem cópia local em cmd/worker/main.go com a mesma assinatura — não
+// compartilhamos pra manter os binários independentes.
+type deviceResolver struct{ repo *pgdb.DeviceRepo }
+
+func (d *deviceResolver) ResolveGenieACSID(ctx context.Context, internalID uuid.UUID) (string, error) {
+	dev, err := d.repo.GetByID(ctx, internalID)
+	if err != nil {
+		return "", err
+	}
+	return dev.GenieACSID, nil
 }
 
 // cacheControl fixa um header Cache-Control nas respostas. Aplicado em

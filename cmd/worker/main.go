@@ -22,6 +22,7 @@ import (
 
 	aclapp "github.com/celinet/sentinel-acs/internal/application/acl"
 	alertapp "github.com/celinet/sentinel-acs/internal/application/alerting"
+	diagapp "github.com/celinet/sentinel-acs/internal/application/diagnostics"
 	appintegration "github.com/celinet/sentinel-acs/internal/application/integration"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 	appinventory "github.com/celinet/sentinel-acs/internal/application/inventory"
@@ -59,6 +60,12 @@ const (
 	// Telemetry collector: tick a cada 5 min (alinhado com §10.1 do doc).
 	telemetryTickInterval = 5 * time.Minute
 	telemetryTickTimeout  = 4 * time.Minute
+
+	// Diagnostics poller: tick a cada 10s. Cada IPPing/TraceRoute roda em
+	// 5–60s no CPE; 10s é cadência adequada pra UI sentir responsividade
+	// (HTMX polling) sem esmagar o GenieACS NBI.
+	diagnosticsTickInterval = 10 * time.Second
+	diagnosticsTickTimeout  = 30 * time.Second
 
 	// Alerting engine: tick 1 min (CP-5.3). Avalia regras vs métricas atuais
 	// e dispara notificações respeitando cooldown.
@@ -118,6 +125,7 @@ func run() error {
 	jobRepo := pgdb.NewJobRepo(pgPool)
 	batchRepo := pgdb.NewBatchRepo(pgPool)
 	telemetryRepo := pgdb.NewTelemetryRepo(pgPool)
+	diagnosticsRepo := pgdb.NewDiagnosticsRepo(pgPool)
 
 	syncSvc := appinventory.NewSyncService(
 		deviceRepo, customerRepo, vendorRepo, modelRepo,
@@ -140,6 +148,11 @@ func run() error {
 		PerDeviceTimeout: 10 * time.Second,
 		OnlineThreshold:  offlineThreshold,
 	})
+
+	// Diagnostics service: usa o mesmo deviceResolver do executor (resolve
+	// genieacs_id) + cliente NBI direto. SetParameterValues dispara o teste,
+	// PollAll varre a fila a cada 10s.
+	diagSvc := diagapp.NewService(diagnosticsRepo, &deviceResolver{repo: deviceRepo}, genieClient)
 
 	// Alerting engine — repos + composite source (devices + telemetry) +
 	// notifiers configurados via env. Notifiers desabilitados são `nil`
@@ -191,6 +204,9 @@ func run() error {
 	telemetryTicker := time.NewTicker(telemetryTickInterval)
 	defer telemetryTicker.Stop()
 
+	diagnosticsTicker := time.NewTicker(diagnosticsTickInterval)
+	defer diagnosticsTicker.Stop()
+
 	alertTicker := time.NewTicker(alertTickInterval)
 	defer alertTicker.Stop()
 
@@ -238,6 +254,8 @@ func run() error {
 			runVoalle(rootCtx, voalleSync, log)
 		case <-telemetryTicker.C:
 			runTelemetry(rootCtx, collector, log)
+		case <-diagnosticsTicker.C:
+			runDiagnostics(rootCtx, diagSvc, log)
 		case <-alertTicker.C:
 			runAlertEngine(rootCtx, alertEngine, log)
 		case <-homCleanupTicker.C:
@@ -448,6 +466,30 @@ func runHomologationCleanup(ctx context.Context, sessions hom.SessionRepo, log *
 	}
 	if n > 0 {
 		log.Info("homologation cleanup", "purged_snapshots", n, "before", cutoff.Format(time.RFC3339))
+	}
+}
+
+func runDiagnostics(ctx context.Context, svc *diagapp.Service, log *slog.Logger) {
+	if svc == nil {
+		return
+	}
+	tCtx, cancel := context.WithTimeout(ctx, diagnosticsTickTimeout)
+	defer cancel()
+	res, err := svc.PollAll(tCtx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Error("diagnostics poll failed", "err", err)
+		return
+	}
+	if res.Processed > 0 {
+		log.Info("diagnostics tick",
+			"processed", res.Processed,
+			"completed", res.Completed,
+			"timed_out", res.TimedOut,
+			"errors", res.Errors,
+		)
 	}
 }
 

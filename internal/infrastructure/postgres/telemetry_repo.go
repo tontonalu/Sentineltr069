@@ -72,11 +72,12 @@ func (r *TelemetryRepo) InsertSystem(ctx context.Context, samples []tele.SystemS
 		rows = append(rows, []any{
 			s.Time, s.DeviceID,
 			float64Ptr(s.CPUPct), float64Ptr(s.MemPct), int64Ptr(s.UptimeSeconds),
+			float64Ptr(s.TemperatureC),
 		})
 	}
 	_, err := r.pool.CopyFrom(ctx,
 		pgx.Identifier{"telemetry_system"},
-		[]string{"time", "device_id", "cpu_pct", "mem_pct", "uptime_seconds"},
+		[]string{"time", "device_id", "cpu_pct", "mem_pct", "uptime_seconds", "temperature_c"},
 		pgx.CopyFromRows(rows),
 	)
 	return err
@@ -133,7 +134,7 @@ func (r *TelemetryRepo) QueryWanRaw(ctx context.Context, deviceID uuid.UUID, rg 
 
 func (r *TelemetryRepo) QuerySystemRaw(ctx context.Context, deviceID uuid.UUID, rg tele.Range) ([]tele.SystemSample, error) {
 	const q = `
-		SELECT time, device_id, cpu_pct, mem_pct, uptime_seconds
+		SELECT time, device_id, cpu_pct, mem_pct, uptime_seconds, temperature_c
 		  FROM telemetry_system
 		 WHERE device_id = $1 AND time BETWEEN $2 AND $3
 		 ORDER BY time`
@@ -145,7 +146,7 @@ func (r *TelemetryRepo) QuerySystemRaw(ctx context.Context, deviceID uuid.UUID, 
 	var out []tele.SystemSample
 	for rows.Next() {
 		var s tele.SystemSample
-		if err := rows.Scan(&s.Time, &s.DeviceID, &s.CPUPct, &s.MemPct, &s.UptimeSeconds); err != nil {
+		if err := rows.Scan(&s.Time, &s.DeviceID, &s.CPUPct, &s.MemPct, &s.UptimeSeconds, &s.TemperatureC); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -208,7 +209,8 @@ func (r *TelemetryRepo) QueryWanHourly(ctx context.Context, deviceID uuid.UUID, 
 
 func (r *TelemetryRepo) QuerySystemHourly(ctx context.Context, deviceID uuid.UUID, rg tele.Range) ([]tele.HourlySystemPoint, error) {
 	const q = `
-		SELECT bucket, avg_cpu, max_cpu, avg_mem, uptime_max
+		SELECT bucket, avg_cpu, max_cpu, avg_mem,
+		       avg_temperature_c, max_temperature_c, uptime_max
 		  FROM telemetry_system_hourly
 		 WHERE device_id = $1 AND bucket BETWEEN $2 AND $3
 		 ORDER BY bucket`
@@ -220,7 +222,8 @@ func (r *TelemetryRepo) QuerySystemHourly(ctx context.Context, deviceID uuid.UUI
 	var out []tele.HourlySystemPoint
 	for rows.Next() {
 		var p tele.HourlySystemPoint
-		if err := rows.Scan(&p.Bucket, &p.AvgCPU, &p.MaxCPU, &p.AvgMem, &p.UptimeMax); err != nil {
+		if err := rows.Scan(&p.Bucket, &p.AvgCPU, &p.MaxCPU, &p.AvgMem,
+			&p.AvgTemperatureC, &p.MaxTemperatureC, &p.UptimeMax); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

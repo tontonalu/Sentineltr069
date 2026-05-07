@@ -16,9 +16,12 @@ import (
 	"github.com/google/uuid"
 
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
+	diagapp "github.com/celinet/sentinel-acs/internal/application/diagnostics"
+	diagdom "github.com/celinet/sentinel-acs/internal/domain/diagnostics"
 	identity "github.com/celinet/sentinel-acs/internal/domain/identity"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tele "github.com/celinet/sentinel-acs/internal/domain/telemetry"
+	"github.com/celinet/sentinel-acs/internal/infrastructure/genieacs"
 	"github.com/celinet/sentinel-acs/internal/platform/logger"
 	mw "github.com/celinet/sentinel-acs/internal/transport/http/middleware"
 	devicepages "github.com/celinet/sentinel-acs/internal/views/pages/devices"
@@ -38,6 +41,14 @@ type DeviceTabsHandler struct {
 	POPs        domain.POPRepository
 	ProfileView *devapp.Service
 	Telemetry   tele.Repository
+
+	// Refresh manual (botão na aba Estatísticas) + diagnostics remotos
+	// (ping/traceroute via TR-069). Todos opcionais — se nil, as rotas
+	// associadas não são registradas (server main checa).
+	GenieACS        *genieacs.Client
+	RefreshGate     *RefreshGate
+	Diagnostics     *diagapp.Service
+	DiagnosticsRepo diagdom.Repository
 }
 
 // Tab GET /devices/{id}/tabs/{name} — fragmento HTMX por aba.
@@ -110,7 +121,15 @@ func (h *DeviceTabsHandler) Tab(w http.ResponseWriter, r *http.Request) {
 		input := h.loadStats(r, id, *dev, rng)
 		_ = devicepages.TabStats(input).Render(r.Context(), w)
 	case "diag":
-		_ = devicepages.TabDiag(devicepages.DiagInput{Device: *dev}).Render(r.Context(), w)
+		var history []diagdom.Diagnostic
+		if h.DiagnosticsRepo != nil {
+			history, _ = h.DiagnosticsRepo.ListByDevice(r.Context(), id, 20)
+		}
+		_ = devicepages.TabDiag(devicepages.DiagInput{
+			Device:      *dev,
+			History:     history,
+			CanDiagnose: userHasPermission(r, "device", "diagnose"),
+		}).Render(r.Context(), w)
 	default:
 		http.Error(w, "aba desconhecida", http.StatusNotFound)
 	}
@@ -245,8 +264,16 @@ func (h *DeviceTabsHandler) loadPorts(r *http.Request, id uuid.UUID) []tele.Port
 
 // loadStats — reusa o mesmo formato `HistoryInput` do /devices/{id}/history,
 // que já tem renderer SVG (history.templ:dualLineSVG).
+//
+// Além das séries para os charts, popula KPIs (último valor coletado de
+// CPU/Mem/Temp/Wi-Fi clients) consultando direto o ponto mais recente das
+// queries raw — independente do range (sempre últimos 15 min).
 func (h *DeviceTabsHandler) loadStats(r *http.Request, id uuid.UUID, dev domain.Device, rangeStr string) devicepages.StatsInput {
-	in := devicepages.StatsInput{Device: dev, Range: rangeStr}
+	in := devicepages.StatsInput{
+		Device:              dev,
+		Range:               rangeStr,
+		CanRefreshTelemetry: userHasPermission(r, "telemetry", "read"),
+	}
 	if h.Telemetry == nil {
 		return in
 	}
@@ -261,10 +288,12 @@ func (h *DeviceTabsHandler) loadStats(r *http.Request, id uuid.UUID, dev domain.
 		}
 		if sys, err := h.Telemetry.QuerySystemHourly(r.Context(), id, rg); err == nil {
 			in.CPUSeries, in.MemSeries = systemHourlyToSeries(sys)
+			in.TempSeries = systemHourlyToTempSeries(sys)
 		}
 	} else {
 		if w, err := h.Telemetry.QueryWifiRaw(r.Context(), id, rg); err == nil {
 			in.WifiSeries, in.WifiSeries5G = bucketRawWifiByBand(w)
+			in.LatestWifiClients = latestWifiClients(w)
 		}
 		if wan, err := h.Telemetry.QueryWanRaw(r.Context(), id, rg); err == nil {
 			in.WanRxSeries = wanRawToSeries(wan, true)
@@ -272,9 +301,100 @@ func (h *DeviceTabsHandler) loadStats(r *http.Request, id uuid.UUID, dev domain.
 		}
 		if sys, err := h.Telemetry.QuerySystemRaw(r.Context(), id, rg); err == nil {
 			in.CPUSeries, in.MemSeries = systemRawToSeries(sys)
+			in.TempSeries = systemRawToTempSeries(sys)
+			in.LatestCPUPct, in.LatestMemPct, in.LatestTemperatureC = latestSystemKPIs(sys)
 		}
 	}
+
+	// KPIs sempre da janela curta (15min) — senão hourly traria dado velho.
+	now := time.Now().UTC()
+	short := tele.Range{From: now.Add(-15 * time.Minute), To: now}
+	if w, err := h.Telemetry.QueryWifiRaw(r.Context(), id, short); err == nil && in.LatestWifiClients == nil {
+		in.LatestWifiClients = latestWifiClients(w)
+	}
+	if sys, err := h.Telemetry.QuerySystemRaw(r.Context(), id, short); err == nil && in.LatestCPUPct == nil {
+		in.LatestCPUPct, in.LatestMemPct, in.LatestTemperatureC = latestSystemKPIs(sys)
+	}
 	return in
+}
+
+// systemHourlyToTempSeries — extrai max_temperature_c por bucket. Usamos
+// MAX em vez de AVG porque temperatura monitorada é "pior caso da hora".
+func systemHourlyToTempSeries(pts []tele.HourlySystemPoint) []devicepages.SeriesPoint {
+	out := make([]devicepages.SeriesPoint, 0, len(pts))
+	for _, p := range pts {
+		if p.MaxTemperatureC == nil {
+			continue
+		}
+		out = append(out, devicepages.SeriesPoint{X: p.Bucket.UnixMilli(), Y: *p.MaxTemperatureC})
+	}
+	return out
+}
+
+func systemRawToTempSeries(samples []tele.SystemSample) []devicepages.SeriesPoint {
+	out := make([]devicepages.SeriesPoint, 0, len(samples))
+	for _, s := range samples {
+		if s.TemperatureC == nil {
+			continue
+		}
+		out = append(out, devicepages.SeriesPoint{X: s.Time.UnixMilli(), Y: *s.TemperatureC})
+	}
+	return out
+}
+
+// latestSystemKPIs — devolve último ponto não-nulo de cada métrica.
+// Iteramos do mais recente pro mais antigo (samples vêm ordenadas ASC).
+func latestSystemKPIs(samples []tele.SystemSample) (cpu, mem, temp *float64) {
+	for i := len(samples) - 1; i >= 0; i-- {
+		s := samples[i]
+		if cpu == nil && s.CPUPct != nil {
+			cpu = s.CPUPct
+		}
+		if mem == nil && s.MemPct != nil {
+			mem = s.MemPct
+		}
+		if temp == nil && s.TemperatureC != nil {
+			temp = s.TemperatureC
+		}
+		if cpu != nil && mem != nil && temp != nil {
+			break
+		}
+	}
+	return
+}
+
+// latestWifiClients — soma o ConnectedClients do último timestamp. Quando
+// um device tem múltiplos SSIDs (2.4G + 5G), o valor agregado é o que
+// importa para o KPI (operador pensa "X clientes no AP").
+func latestWifiClients(samples []tele.WifiSample) *int {
+	if len(samples) == 0 {
+		return nil
+	}
+	// Encontra o time mais recente.
+	var lastT time.Time
+	for _, s := range samples {
+		if s.Time.After(lastT) {
+			lastT = s.Time
+		}
+	}
+	// Agrega tudo dentro de uma janela de 5 min em torno desse time
+	// (samples do mesmo tick têm timestamps idênticos por design, mas
+	// ser tolerante evita 0 quando o tick demorou).
+	total := 0
+	any := false
+	for _, s := range samples {
+		if lastT.Sub(s.Time) > 5*time.Minute {
+			continue
+		}
+		if s.ConnectedClients != nil {
+			total += *s.ConnectedClients
+			any = true
+		}
+	}
+	if !any {
+		return nil
+	}
+	return &total
 }
 
 // userHasPermission — wrapper sobre EffectivePermissions para uso pontual

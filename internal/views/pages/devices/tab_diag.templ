@@ -1,20 +1,281 @@
 package devices
 
-// TabDiag — placeholder para diagnósticos (ping/traceroute/speed test).
-// Implementação completa exige expor os endpoints `Diagnostics.*` do TR-069
-// no client GenieACS — fica para fase posterior.
+import (
+	"strconv"
+
+	diagdom "github.com/celinet/sentinel-acs/internal/domain/diagnostics"
+)
+
+// TabDiag — aba Diagnósticos. Form de Ping e Traceroute em cima; histórico
+// recente em baixo. Cada linha do histórico faz HTMX self-polling enquanto
+// estiver em status não-terminal — quando vira complete/error/timeout o
+// fragmento devolvido não tem hx-trigger e o polling para sozinho.
 templ TabDiag(in DiagInput) {
-	<div class="space-y-3">
-		<h3 class="text-sm font-medium text-sentinel-700">Diagnósticos</h3>
-		<p class="rounded border border-sentinel-100 bg-sentinel-50 px-3 py-2 text-xs text-sentinel-500">
-			Ferramentas de diagnóstico (ping, traceroute, teste de velocidade)
-			ainda não estão implementadas. Use o GenieACS NBI diretamente ou
-			abra um chamado para incluir os endpoints na próxima fase.
-		</p>
-		<div class="flex flex-wrap gap-2 opacity-50">
-			<button type="button" class="btn-ghost text-xs" disabled>Ping</button>
-			<button type="button" class="btn-ghost text-xs" disabled>Traceroute</button>
-			<button type="button" class="btn-ghost text-xs" disabled>Teste de velocidade</button>
-		</div>
+	<div class="space-y-4">
+		<header>
+			<h3 class="text-sm font-medium text-sentinel-700">Diagnósticos remotos</h3>
+			<p class="text-xs text-sentinel-500 mt-1">
+				Disparados via TR-069 (IPPingDiagnostics / TraceRouteDiagnostics) — o
+				CPE executa o teste e devolve o resultado em alguns segundos.
+			</p>
+		</header>
+		if !in.CanDiagnose {
+			<section class="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+				Você não tem permissão <code>device.diagnose</code> — peça pro admin
+				habilitar pra disparar testes a partir desta página.
+			</section>
+		} else {
+			<section class="grid gap-3 md:grid-cols-2">
+				@pingForm(in.Device.ID.String())
+				@tracerouteForm(in.Device.ID.String())
+			</section>
+		}
+		<section class="rounded-lg bg-white p-4 shadow">
+			<h4 class="mb-3 text-xs font-medium text-sentinel-700">Histórico recente</h4>
+			<div id="diagnostic-results" class="space-y-2">
+				if len(in.History) == 0 {
+					<p class="text-xs text-sentinel-500">Nenhum diagnóstico executado ainda.</p>
+				} else {
+					for _, d := range in.History {
+						@DiagnosticRow(DiagnosticRowInput{DeviceID: in.Device.ID, Diagnostic: d})
+					}
+				}
+			</div>
+		</section>
 	</div>
+}
+
+// pingForm — campos básicos. Defaults razoáveis (4 pings, 64 bytes, 5s) já
+// vêm do service quando vazios; aqui pré-populamos pra ficar visível.
+templ pingForm(deviceID string) {
+	<form
+		method="POST"
+		hx-post={ "/devices/" + deviceID + "/diagnostics/ping" }
+		hx-target="#diagnostic-results"
+		hx-swap="afterbegin"
+		class="rounded-lg bg-white p-4 shadow space-y-2"
+	>
+		<h4 class="text-sm font-medium text-sentinel-700">Ping</h4>
+		<div class="grid grid-cols-2 gap-2">
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Host / IP</span>
+				<input name="host" required placeholder="8.8.8.8" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Pacotes</span>
+				<input name="count" type="number" min="1" max="100" value="4" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Tamanho (bytes)</span>
+				<input name="size_bytes" type="number" min="32" max="1500" value="64" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Timeout (ms)</span>
+				<input name="timeout_ms" type="number" min="500" max="30000" value="5000" class="input mt-0.5"/>
+			</label>
+		</div>
+		<button type="submit" class="btn-primary text-xs">Disparar Ping</button>
+	</form>
+}
+
+templ tracerouteForm(deviceID string) {
+	<form
+		method="POST"
+		hx-post={ "/devices/" + deviceID + "/diagnostics/traceroute" }
+		hx-target="#diagnostic-results"
+		hx-swap="afterbegin"
+		class="rounded-lg bg-white p-4 shadow space-y-2"
+	>
+		<h4 class="text-sm font-medium text-sentinel-700">Traceroute</h4>
+		<div class="grid grid-cols-2 gap-2">
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Host / IP</span>
+				<input name="host" required placeholder="8.8.8.8" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Max hops</span>
+				<input name="max_hops" type="number" min="1" max="64" value="30" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Tamanho (bytes)</span>
+				<input name="size_bytes" type="number" min="32" max="1500" value="64" class="input mt-0.5"/>
+			</label>
+			<label class="block">
+				<span class="text-[11px] text-sentinel-600">Timeout (ms/hop)</span>
+				<input name="timeout_ms" type="number" min="500" max="30000" value="5000" class="input mt-0.5"/>
+			</label>
+		</div>
+		<button type="submit" class="btn-primary text-xs">Disparar Traceroute</button>
+	</form>
+}
+
+// DiagnosticRow — fragmento HTMX de uma execução. Em status não-terminal
+// adiciona hx-trigger="every 2s" pra auto-poll; quando termina o trigger
+// some e o polling para naturalmente.
+templ DiagnosticRow(in DiagnosticRowInput) {
+	if in.Diagnostic.Status.Terminal() {
+		<div id={ diagRowID(in.Diagnostic.ID.String()) } class="rounded border border-sentinel-200 bg-white p-3 text-xs">
+			@diagRowHeader(in)
+			@diagRowResult(in)
+		</div>
+	} else {
+		<div
+			id={ diagRowID(in.Diagnostic.ID.String()) }
+			class="rounded border border-sky-200 bg-sky-50 p-3 text-xs"
+			hx-get={ "/devices/" + in.DeviceID.String() + "/diagnostics/" + in.Diagnostic.ID.String() }
+			hx-trigger="every 2s"
+			hx-swap="outerHTML"
+		>
+			@diagRowHeader(in)
+			<p class="mt-2 text-sentinel-600">Aguardando resposta do CPE…</p>
+		</div>
+	}
+}
+
+templ diagRowHeader(in DiagnosticRowInput) {
+	<div class="flex items-center justify-between gap-2">
+		<div class="flex items-center gap-2">
+			<span class="font-medium uppercase tracking-wider text-[10px] text-sentinel-500">
+				{ string(in.Diagnostic.Type) }
+			</span>
+			<span class="font-mono text-sentinel-900">{ diagHost(in.Diagnostic) }</span>
+		</div>
+		<span class={ "rounded px-1.5 py-0.5 text-[10px] font-medium", diagStatusClass(in.Diagnostic.Status) }>
+			{ string(in.Diagnostic.Status) }
+		</span>
+	</div>
+	<p class="mt-0.5 text-[10px] text-sentinel-500">
+		{ in.Diagnostic.RequestedAt.Format("02/01/2006 15:04:05") }
+	</p>
+}
+
+templ diagRowResult(in DiagnosticRowInput) {
+	if in.Diagnostic.Error != "" {
+		<p class="mt-2 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-rose-700">{ in.Diagnostic.Error }</p>
+	} else if in.Diagnostic.Result != nil {
+		switch in.Diagnostic.Type {
+			case diagdom.TypePing:
+				@diagPingResult(in.Diagnostic.Result)
+			case diagdom.TypeTraceroute:
+				@diagTracerouteResult(in.Diagnostic.Result)
+		}
+	}
+}
+
+templ diagPingResult(result map[string]any) {
+	<dl class="mt-2 grid grid-cols-3 gap-2">
+		<div><dt class="text-[10px] text-sentinel-500">sucesso</dt><dd class="font-mono">{ jsonInt(result, "success_count") }</dd></div>
+		<div><dt class="text-[10px] text-sentinel-500">falha</dt><dd class="font-mono">{ jsonInt(result, "failure_count") }</dd></div>
+		<div><dt class="text-[10px] text-sentinel-500">avg</dt><dd class="font-mono">{ jsonInt(result, "avg_response_ms") } ms</dd></div>
+		<div><dt class="text-[10px] text-sentinel-500">min</dt><dd class="font-mono">{ jsonInt(result, "min_response_ms") } ms</dd></div>
+		<div><dt class="text-[10px] text-sentinel-500">max</dt><dd class="font-mono">{ jsonInt(result, "max_response_ms") } ms</dd></div>
+	</dl>
+}
+
+templ diagTracerouteResult(result map[string]any) {
+	<table class="mt-2 w-full text-[11px] font-mono">
+		<thead>
+			<tr class="text-sentinel-500">
+				<th class="text-left">#</th>
+				<th class="text-left">IP</th>
+				<th class="text-left">Host</th>
+				<th class="text-right">RTT</th>
+			</tr>
+		</thead>
+		<tbody>
+			for _, hop := range tracerouteHops(result) {
+				<tr>
+					<td>{ jsonInt(hop, "hop") }</td>
+					<td>{ jsonStr(hop, "ip") }</td>
+					<td class="text-sentinel-700">{ jsonStr(hop, "host") }</td>
+					<td class="text-right">{ jsonStr(hop, "rtt") }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+// DiagnosticErrorBanner — devolvido com 422 quando EnqueuePing/Traceroute falha.
+templ DiagnosticErrorBanner(msg string) {
+	<div class="rounded border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800">
+		<strong>Erro ao iniciar diagnóstico:</strong> { msg }
+	</div>
+}
+
+// ──────────── helpers ────────────
+
+func diagRowID(id string) string { return "diag-" + id }
+
+func diagHost(d diagdom.Diagnostic) string {
+	if d.Request == nil {
+		return "—"
+	}
+	if v, ok := d.Request["host"].(string); ok {
+		return v
+	}
+	return "—"
+}
+
+func diagStatusClass(s diagdom.Status) string {
+	switch s {
+	case diagdom.StatusComplete:
+		return "bg-emerald-50 text-emerald-700"
+	case diagdom.StatusError:
+		return "bg-rose-50 text-rose-700"
+	case diagdom.StatusTimeout:
+		return "bg-amber-50 text-amber-700"
+	case diagdom.StatusRunning:
+		return "bg-sky-50 text-sky-700"
+	}
+	return "bg-sentinel-50 text-sentinel-700"
+}
+
+// jsonInt — extrai int de map[string]any vindo de JSONB. Aceita float64
+// (json default), int64, int e string defensivamente.
+func jsonInt(m map[string]any, key string) string {
+	if m == nil {
+		return "0"
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return "0"
+	}
+	switch n := v.(type) {
+	case float64:
+		return strconv.FormatInt(int64(n), 10)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	case int:
+		return strconv.Itoa(n)
+	case string:
+		return n
+	}
+	return "0"
+}
+
+func jsonStr(m map[string]any, key string) string {
+	if m == nil {
+		return "—"
+	}
+	if v, ok := m[key].(string); ok && v != "" {
+		return v
+	}
+	return "—"
+}
+
+func tracerouteHops(result map[string]any) []map[string]any {
+	if result == nil {
+		return nil
+	}
+	raw, ok := result["hops"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
 }

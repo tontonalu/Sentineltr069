@@ -40,13 +40,17 @@ type WanSample struct {
 	OpticalTxDBM *float64
 }
 
-// SystemSample — CPU/memória/uptime do CPE.
+// SystemSample — CPU/memória/uptime/temperatura do CPE.
 type SystemSample struct {
 	Time          time.Time
 	DeviceID      uuid.UUID
 	CPUPct        *float64
 	MemPct        *float64
 	UptimeSeconds *int64
+	// TemperatureC vem de sensores ópticos/board do CPE quando expostos via
+	// TR-098 (TemperatureStatus.TemperatureSensor.{i}.Value). Pointer pra
+	// distinguir 0°C de "não reportado".
+	TemperatureC *float64
 }
 
 // HasAnyMetric true se ao menos um sinal real foi coletado.
@@ -62,7 +66,7 @@ func (s WanSample) HasAnyMetric() bool {
 }
 
 func (s SystemSample) HasAnyMetric() bool {
-	return s.CPUPct != nil || s.MemPct != nil || s.UptimeSeconds != nil
+	return s.CPUPct != nil || s.MemPct != nil || s.UptimeSeconds != nil || s.TemperatureC != nil
 }
 
 // Range — intervalo para queries de série temporal.
@@ -94,11 +98,13 @@ type HourlyWanPoint struct {
 }
 
 type HourlySystemPoint struct {
-	Bucket    time.Time
-	AvgCPU    *float64
-	MaxCPU    *float64
-	AvgMem    *float64
-	UptimeMax *int64
+	Bucket           time.Time
+	AvgCPU           *float64
+	MaxCPU           *float64
+	AvgMem           *float64
+	AvgTemperatureC  *float64
+	MaxTemperatureC  *float64
+	UptimeMax        *int64
 }
 
 // HostSample — 1 dispositivo conectado à LAN do CPE em um tick.

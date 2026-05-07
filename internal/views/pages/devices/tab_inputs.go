@@ -5,9 +5,12 @@
 package devices
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
+	diagdom "github.com/celinet/sentinel-acs/internal/domain/diagnostics"
 	domain "github.com/celinet/sentinel-acs/internal/domain/inventory"
 	tele "github.com/celinet/sentinel-acs/internal/domain/telemetry"
 )
@@ -62,11 +65,42 @@ type StatsInput struct {
 	WanTxSeries  []SeriesPoint
 	CPUSeries    []SeriesPoint
 	MemSeries    []SeriesPoint
+	TempSeries   []SeriesPoint
+
+	// KPIs de cabeçalho — mostram o último ponto disponível ao invés de
+	// agregados, pra dar feedback imediato de "está coletando agora".
+	LatestCPUPct        *float64
+	LatestMemPct        *float64
+	LatestTemperatureC  *float64
+	LatestWifiClients   *int
+
+	// Permissão pra renderizar o botão de refresh manual (gate na UI;
+	// handler também valida).
+	CanRefreshTelemetry bool
 }
 
-// DiagInput — aba Diagnósticos (placeholders por enquanto).
+// RefreshResultInput — fragmento HTMX devolvido pelo POST refresh-telemetry.
+// HTMX troca o conteúdo do contêiner do botão por essa mensagem.
+type RefreshResultInput struct {
+	DeviceID    uuid.UUID
+	OK          bool
+	Message     string
+	NextRetryIn time.Duration // só preenchido quando OK=false por cooldown
+}
+
+// DiagInput — aba Diagnósticos. List traz histórico recente; ativos vão
+// pra cima e fazem polling automático até virar terminal.
 type DiagInput struct {
-	Device domain.Device
+	Device      domain.Device
+	History     []diagdom.Diagnostic
+	CanDiagnose bool
+}
+
+// DiagnosticRowInput — fragmento de uma linha de diagnostic, usado tanto
+// na lista inicial quanto no polling auto-refresh.
+type DiagnosticRowInput struct {
+	DeviceID   uuid.UUID
+	Diagnostic diagdom.Diagnostic
 }
 
 // FieldRowInput — fragmento que representa 1 linha de configuração
