@@ -211,6 +211,39 @@ func (h *HomologationHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/homologation/sessions/"+id.String(), http.StatusSeeOther)
 }
 
+// ProbingStatus GET /homologation/sessions/{id}/probing-status — fragment
+// HTMX consultado a cada 5s pela tela de "sondando". Devolve:
+//
+//   - se ainda em probing: um fragmento idêntico ao probingState (com tempo
+//     decorrido atualizado), que reagenda o próprio polling.
+//   - se saiu de probing: um pequeno script que recarrega a página inteira
+//     para entrar no fluxo do wizard com a árvore.
+func (h *HomologationHandler) ProbingStatus(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseSessionID(w, r)
+	if !ok {
+		return
+	}
+	sess, err := h.Service.GetSession(r.Context(), id)
+	if err != nil {
+		http.Error(w, friendlyHomError(err), http.StatusUnprocessableEntity)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Saiu de probing → manda o cliente recarregar a página completa.
+	if sess.Status != hom.SessionProbing {
+		_, _ = w.Write([]byte(
+			`<section><script>window.location.reload();</script></section>`,
+		))
+		return
+	}
+
+	// Ainda em probing → re-renderiza o fragmento (com tempo atualizado).
+	csrf := mw.CSRFTokenFromContext(r.Context())
+	in := hompages.WizardInput{Session: *sess, CSRF: csrf}
+	_ = hompages.ProbingFragment(in).Render(r.Context(), w)
+}
+
 // ResetProbe POST /homologation/sessions/{id}/reset-probe — saída de
 // emergência para sessão travada em probing (NBI lento/morto, server
 // reiniciou mid-probe). Devolve para testing se já tem snapshot, senão
