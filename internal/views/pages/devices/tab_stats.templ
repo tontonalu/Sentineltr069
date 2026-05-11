@@ -26,7 +26,7 @@ templ TabStats(in StatsInput) {
 			<div class="flex items-center gap-2">
 				if in.CanRefreshTelemetry {
 					<div id={ refreshContainerID(in.Device.ID) }>
-						@refreshButton(in.Device.ID)
+						@refreshButton(in.Device.ID, in.CSRFToken)
 					</div>
 				}
 				@statsRangeSelector(in.Device.ID.String(), in.Range)
@@ -117,11 +117,16 @@ templ kpiCard(label, value, suffix string) {
 
 // refreshButton — botão simples; HTMX faz POST e o handler devolve um
 // fragmento RefreshResult que substitui o conteúdo do contêiner.
-templ refreshButton(deviceID uuid.UUID) {
+//
+// O CSRF do middleware aceita header X-CSRF-Token quando o body não tem
+// `_csrf` (este botão não envia form fields, só dispara o POST), então
+// injetamos o token via hx-headers.
+templ refreshButton(deviceID uuid.UUID, csrfToken string) {
 	<button
 		type="button"
 		class="btn-ghost text-xs"
 		hx-post={ "/devices/" + deviceID.String() + "/refresh-telemetry" }
+		hx-headers={ `{"X-CSRF-Token": "` + csrfToken + `"}` }
 		hx-target={ "#" + refreshContainerID(deviceID) }
 		hx-swap="innerHTML"
 	>↻ Atualizar agora</button>
@@ -157,8 +162,9 @@ templ deferredRefreshButton(id uuid.UUID, delay int) {
 }
 
 // RefreshButtonOnly — renderizado pelo endpoint que devolve só o botão.
-templ RefreshButtonOnly(deviceID uuid.UUID) {
-	@refreshButton(deviceID)
+// Recebe o token do handler (que lê do contexto) para repassar ao botão.
+templ RefreshButtonOnly(deviceID uuid.UUID, csrfToken string) {
+	@refreshButton(deviceID, csrfToken)
 }
 
 func retrySeconds(d time.Duration) int {

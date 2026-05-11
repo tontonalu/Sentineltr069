@@ -127,6 +127,7 @@ func (h *DeviceTabsHandler) Tab(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = devicepages.TabDiag(devicepages.DiagInput{
 			Device:      *dev,
+			CSRFToken:   csrf,
 			History:     history,
 			CanDiagnose: userHasPermission(r, "device", "diagnose"),
 		}).Render(r.Context(), w)
@@ -329,6 +330,7 @@ func (h *DeviceTabsHandler) loadPorts(r *http.Request, id uuid.UUID) []tele.Port
 func (h *DeviceTabsHandler) loadStats(r *http.Request, id uuid.UUID, dev domain.Device, rangeStr string) devicepages.StatsInput {
 	in := devicepages.StatsInput{
 		Device:              dev,
+		CSRFToken:           mw.CSRFTokenFromContext(r.Context()),
 		Range:               rangeStr,
 		CanRefreshTelemetry: userHasPermission(r, "telemetry", "read"),
 	}

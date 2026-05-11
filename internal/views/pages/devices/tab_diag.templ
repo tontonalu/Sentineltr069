@@ -26,8 +26,8 @@ templ TabDiag(in DiagInput) {
 			</section>
 		} else {
 			<section class="grid gap-3 md:grid-cols-2">
-				@pingForm(in.Device.ID.String())
-				@tracerouteForm(in.Device.ID.String())
+				@pingForm(in.Device.ID.String(), in.CSRFToken)
+				@tracerouteForm(in.Device.ID.String(), in.CSRFToken)
 			</section>
 		}
 		<section class="rounded-lg bg-white p-4 shadow">
@@ -47,7 +47,7 @@ templ TabDiag(in DiagInput) {
 
 // pingForm — campos básicos. Defaults razoáveis (4 pings, 64 bytes, 5s) já
 // vêm do service quando vazios; aqui pré-populamos pra ficar visível.
-templ pingForm(deviceID string) {
+templ pingForm(deviceID, csrfToken string) {
 	<form
 		method="POST"
 		hx-post={ "/devices/" + deviceID + "/diagnostics/ping" }
@@ -55,6 +55,7 @@ templ pingForm(deviceID string) {
 		hx-swap="afterbegin"
 		class="rounded-lg bg-white p-4 shadow space-y-2"
 	>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
 		<h4 class="text-sm font-medium text-sentinel-700">Ping</h4>
 		<div class="grid grid-cols-2 gap-2">
 			<label class="block">
@@ -78,7 +79,7 @@ templ pingForm(deviceID string) {
 	</form>
 }
 
-templ tracerouteForm(deviceID string) {
+templ tracerouteForm(deviceID, csrfToken string) {
 	<form
 		method="POST"
 		hx-post={ "/devices/" + deviceID + "/diagnostics/traceroute" }
@@ -86,6 +87,7 @@ templ tracerouteForm(deviceID string) {
 		hx-swap="afterbegin"
 		class="rounded-lg bg-white p-4 shadow space-y-2"
 	>
+		<input type="hidden" name="_csrf" value={ csrfToken }/>
 		<h4 class="text-sm font-medium text-sentinel-700">Traceroute</h4>
 		<div class="grid grid-cols-2 gap-2">
 			<label class="block">

@@ -58,6 +58,7 @@ type PortsInput struct {
 // helper dualLineSVG sem cópia.
 type StatsInput struct {
 	Device       domain.Device
+	CSRFToken    string // injetado no botão de refresh manual (HTMX header)
 	Range        string // "24h" | "7d" | "30d"
 	WifiSeries   []SeriesPoint
 	WifiSeries5G []SeriesPoint
@@ -83,6 +84,7 @@ type StatsInput struct {
 // HTMX troca o conteúdo do contêiner do botão por essa mensagem.
 type RefreshResultInput struct {
 	DeviceID    uuid.UUID
+	CSRFToken   string
 	OK          bool
 	Message     string
 	NextRetryIn time.Duration // só preenchido quando OK=false por cooldown
@@ -92,6 +94,7 @@ type RefreshResultInput struct {
 // pra cima e fazem polling automático até virar terminal.
 type DiagInput struct {
 	Device      domain.Device
+	CSRFToken   string
 	History     []diagdom.Diagnostic
 	CanDiagnose bool
 }

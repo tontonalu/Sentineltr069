@@ -81,6 +81,7 @@ func (h *DeviceTabsHandler) RefreshTelemetry(w http.ResponseWriter, r *http.Requ
 		h.RefreshGate = NewRefreshGate(30 * time.Second)
 	}
 
+	csrf := mw.CSRFTokenFromContext(r.Context())
 	allow, retry := h.RefreshGate.Reserve(id)
 	if !allow {
 		// Devolvemos 200 com fragmento — HTMX renderiza inline. 429 também
@@ -88,6 +89,7 @@ func (h *DeviceTabsHandler) RefreshTelemetry(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = devicepages.RefreshResult(devicepages.RefreshResultInput{
 			DeviceID:    id,
+			CSRFToken:   csrf,
 			OK:          false,
 			Message:     "Aguarde " + strconv.Itoa(int(retry.Seconds()+0.5)) + "s para tentar de novo",
 			NextRetryIn: retry,
@@ -104,18 +106,20 @@ func (h *DeviceTabsHandler) RefreshTelemetry(w http.ResponseWriter, r *http.Requ
 		logger.FromContext(r.Context()).Warn("refresh telemetry", "err", err, "device", id)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = devicepages.RefreshResult(devicepages.RefreshResultInput{
-			DeviceID: id,
-			OK:       false,
-			Message:  "Falha ao agendar refresh: " + err.Error(),
+			DeviceID:  id,
+			CSRFToken: csrf,
+			OK:        false,
+			Message:   "Falha ao agendar refresh: " + err.Error(),
 		}).Render(r.Context(), w)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = devicepages.RefreshResult(devicepages.RefreshResultInput{
-		DeviceID: id,
-		OK:       true,
-		Message:  "Refresh agendado — dados serão atualizados nos próximos ~30s",
+		DeviceID:  id,
+		CSRFToken: csrf,
+		OK:        true,
+		Message:   "Refresh agendado — dados serão atualizados nos próximos ~30s",
 	}).Render(r.Context(), w)
 }
 
@@ -128,7 +132,7 @@ func (h *DeviceTabsHandler) RefreshButton(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = devicepages.RefreshButtonOnly(id).Render(r.Context(), w)
+	_ = devicepages.RefreshButtonOnly(id, mw.CSRFTokenFromContext(r.Context())).Render(r.Context(), w)
 }
 
 // RunPing POST /devices/{id}/diagnostics/ping — dispara IPPingDiagnostics.
