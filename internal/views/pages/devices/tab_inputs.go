@@ -118,3 +118,17 @@ type FieldErrorInput struct {
 	CanonicalKey string
 	Message      string
 }
+
+// FieldBatchInput — banner do POST batch /devices/{id}/fields. Renderizado
+// no topo do pane re-trocado pelo HTMX.
+//
+// Quando Err != nil exibe erro vermelho. Quando JobID != uuid.Nil, link
+// pro job criado. Skipped lista canonical_keys ignoradas (regra "senha em
+// branco preserva o valor atual") — informação útil para o operador saber
+// que clicar Salvar não apagou nenhuma senha.
+type FieldBatchInput struct {
+	DeviceID uuid.UUID
+	JobID    uuid.UUID
+	Err      error
+	Results  []devapp.FieldUpdateResult
+}

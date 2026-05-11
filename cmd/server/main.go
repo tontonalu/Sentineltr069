@@ -571,11 +571,12 @@ func run() error {
 
 			// Abas dinâmicas + edição inline de campos (HTMX fragments).
 			// Lazy-load por aba: cada GET devolve o HTML do pane.
-			// POST /fields/{key} cria provisioning_job single-parameter.
+			// POST /fields enfileira 1 provisioning_job multi-parâmetro com
+			// todas as alterações do card (1 form por card, 1 botão Salvar).
 			if deviceTabsH != nil {
 				r.Get("/{id}/tabs/{name}", deviceTabsH.Tab)
 				r.With(mw.RequirePermission("device", "configure")).
-					Post("/{id}/fields/{canonical_key}", deviceTabsH.UpdateField)
+					Post("/{id}/fields", deviceTabsH.UpdateFields)
 
 				// Refresh manual da telemetria — exige telemetry.read pra evitar
 				// que viewers anônimos esmaguem o GenieACS. Cooldown 30s/device

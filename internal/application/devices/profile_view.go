@@ -278,6 +278,84 @@ func (s *Service) enrichFromCanonical(ctx context.Context, f *FieldView) {
 	f.Category = inferCategory(f.CanonicalKey)
 }
 
+// FieldUpdateResult — resultado por canonical_key processada em UpdateFields.
+// Skipped=true quando o campo foi ignorado (secret enviado vazio).
+type FieldUpdateResult struct {
+	CanonicalKey string
+	Skipped      bool
+	Reason       string
+}
+
+// UpdateFields aplica em batch as alterações de um card inteiro (Wi-Fi 2.4G,
+// PPPoE, LAN, etc). Filtra:
+//
+//   - chaves não mapeadas no profile → erro (form fora de sincronia);
+//   - chaves não writable → erro (UI não deveria ter mostrado o input);
+//   - secrets com valor vazio → skip silencioso (regra "senha só atualiza se
+//     alterada"; o operador deixa em branco para manter a senha atual).
+//
+// Todos os campos restantes vão em 1 job multi-parâmetro. Devolve a lista
+// de resultados por chave + o ID do job (uuid.Nil quando todos foram skip).
+func (s *Service) UpdateFields(
+	ctx context.Context,
+	deviceID uuid.UUID,
+	values map[string]string,
+	actorID *uuid.UUID,
+) ([]FieldUpdateResult, uuid.UUID, error) {
+	view, err := s.LoadProfileView(ctx, deviceID)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	if !view.HasHomologation {
+		return nil, uuid.Nil, fmt.Errorf("profile_view: device sem profile homologado")
+	}
+	if s.provisioner == nil {
+		return nil, uuid.Nil, fmt.Errorf("profile_view: provisioning service indisponível")
+	}
+
+	results := make([]FieldUpdateResult, 0, len(values))
+	reqs := make([]provapp.SingleFieldRequest, 0, len(values))
+	for key, raw := range values {
+		field, ok := view.FieldByCanonicalKey(key)
+		if !ok {
+			return nil, uuid.Nil, fmt.Errorf("profile_view: canonical_key %q não está mapeada no profile %s",
+				key, view.ProfileName)
+		}
+		if !field.Writable {
+			return nil, uuid.Nil, fmt.Errorf("profile_view: campo %q não é editável", key)
+		}
+		if field.IsSecret && strings.TrimSpace(raw) == "" {
+			results = append(results, FieldUpdateResult{
+				CanonicalKey: key, Skipped: true,
+				Reason: "senha em branco — valor atual preservado",
+			})
+			continue
+		}
+		reqs = append(reqs, provapp.SingleFieldRequest{
+			DeviceID:     deviceID,
+			CanonicalKey: key,
+			TRPath:       field.TRPath,
+			DataType:     field.DataType,
+			RawValue:     raw,
+			IsSecret:     field.IsSecret,
+			RequestedBy:  actorID,
+		})
+		results = append(results, FieldUpdateResult{CanonicalKey: key})
+	}
+
+	if len(reqs) == 0 {
+		return results, uuid.Nil, nil
+	}
+	job, err := s.provisioner.EnqueueFields(ctx, deviceID, reqs, actorID)
+	if err != nil {
+		return results, uuid.Nil, err
+	}
+	if job == nil {
+		return results, uuid.Nil, nil
+	}
+	return results, job.ID, nil
+}
+
 // UpdateField é chamado pelo handler POST /devices/{id}/fields/{canonical_key}.
 // Valida que o campo é writable no profile homologado e enfileira 1 job.
 func (s *Service) UpdateField(

@@ -1,6 +1,7 @@
 package devices
 
 import (
+	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
 	hom "github.com/celinet/sentinel-acs/internal/domain/homologation"
 )
 
@@ -159,12 +160,32 @@ templ identificacaoCard(in TabInput) {
 // deviceExtrasCard — campos da categoria 'device' que não estão em
 // Identificação (uptime, hardware version, spec version, etc). Filtramos
 // duplicações de canonical_keys já cobertas pelo Device entity.
+//
+// Mesmo padrão das outras abas: 1 form por card, 1 botão Salvar. Quando
+// nenhum campo é editável, omitimos o form (caso comum, já que device.*
+// é predominantemente read-only).
 templ deviceExtrasCard(in TabInput) {
 	if g, ok := in.View.GroupsByCategory[hom.CategoryDevice]; ok {
 		<section class="rounded-lg bg-white p-5 shadow">
 			<h3 class="mb-3 text-sm font-semibold text-sentinel-700">Informações TR-069</h3>
+			@deviceExtrasInner(in, filterRedundantDeviceFields(g.Fields))
+		</section>
+	}
+}
+
+templ deviceExtrasInner(in TabInput, fields []devapp.FieldView) {
+	if hasAnyEditable(in.CanEdit, fields) {
+		<form
+			method="POST"
+			action={ templ.URL("/devices/" + in.Device.ID.String() + "/fields") }
+			hx-post={ "/devices/" + in.Device.ID.String() + "/fields" }
+			hx-target="closest .tab-pane"
+			hx-swap="innerHTML"
+		>
+			<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
+			<input type="hidden" name="tab" value="device"/>
 			<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-				for _, f := range filterRedundantDeviceFields(g.Fields) {
+				for _, f := range fields {
 					@FieldRow(FieldRowInput{
 						DeviceID:  in.Device.ID,
 						Field:     f,
@@ -173,7 +194,21 @@ templ deviceExtrasCard(in TabInput) {
 					})
 				}
 			</div>
-		</section>
+			<div class="mt-3 flex justify-end">
+				<button type="submit" class="btn-primary text-xs">Salvar</button>
+			</div>
+		</form>
+	} else {
+		<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+			for _, f := range fields {
+				@FieldRow(FieldRowInput{
+					DeviceID:  in.Device.ID,
+					Field:     f,
+					CSRFToken: in.CSRFToken,
+					CanEdit:   in.CanEdit,
+				})
+			}
+		</div>
 	}
 }
 

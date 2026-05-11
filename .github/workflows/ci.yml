@@ -18,8 +18,11 @@ jobs:
         with:
           go-version: '1.25.10'
           cache: true
-      - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@latest
+      - name: Install templ (matched to go.mod)
+        # Pinamos no mesmo SHA do runtime (go.mod). `@latest` quebra quando o
+        # gerador emite símbolos novos antes do runtime correspondente ser
+        # adotado aqui (ex: templ.ResolveAttributeValue só existe ≥ v0.3.1020).
+        run: go install "github.com/a-h/templ/cmd/templ@$(go list -m -f '{{.Version}}' github.com/a-h/templ)"
       - name: templ generate
         # _templ.go são gitignored — gerar antes do lint resolver os tipos.
         run: templ generate
@@ -36,8 +39,11 @@ jobs:
         with:
           go-version: '1.25.10'
           cache: true
-      - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@latest
+      - name: Install templ (matched to go.mod)
+        # Pinamos no mesmo SHA do runtime (go.mod). `@latest` quebra quando o
+        # gerador emite símbolos novos antes do runtime correspondente ser
+        # adotado aqui (ex: templ.ResolveAttributeValue só existe ≥ v0.3.1020).
+        run: go install "github.com/a-h/templ/cmd/templ@$(go list -m -f '{{.Version}}' github.com/a-h/templ)"
       # Idempotência: gerar 2× e comparar — pega .templ que ficou fora de sync
       # (sem precisar commitar os _templ.go).
       - name: Idempotência do templ generate
@@ -56,8 +62,11 @@ jobs:
         with:
           go-version: '1.25.10'
           cache: true
-      - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@latest
+      - name: Install templ (matched to go.mod)
+        # Pinamos no mesmo SHA do runtime (go.mod). `@latest` quebra quando o
+        # gerador emite símbolos novos antes do runtime correspondente ser
+        # adotado aqui (ex: templ.ResolveAttributeValue só existe ≥ v0.3.1020).
+        run: go install "github.com/a-h/templ/cmd/templ@$(go list -m -f '{{.Version}}' github.com/a-h/templ)"
       - name: templ generate
         run: templ generate
       - name: go mod download
@@ -78,8 +87,11 @@ jobs:
         with:
           go-version: '1.25.10'
           cache: true
-      - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@latest
+      - name: Install templ (matched to go.mod)
+        # Pinamos no mesmo SHA do runtime (go.mod). `@latest` quebra quando o
+        # gerador emite símbolos novos antes do runtime correspondente ser
+        # adotado aqui (ex: templ.ResolveAttributeValue só existe ≥ v0.3.1020).
+        run: go install "github.com/a-h/templ/cmd/templ@$(go list -m -f '{{.Version}}' github.com/a-h/templ)"
       - name: templ generate
         run: templ generate
       - name: Run gosec

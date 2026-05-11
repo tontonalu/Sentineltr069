@@ -37,28 +37,44 @@ type SingleFieldRequest struct {
 //
 // Retorna o Job criado para que a UI possa linkar para /provisioning/jobs/{id}.
 func (s *Service) EnqueueSingleField(ctx context.Context, req SingleFieldRequest) (*prov.Job, error) {
-	if req.DeviceID == uuid.Nil {
+	return s.EnqueueFields(ctx, req.DeviceID, []SingleFieldRequest{req}, req.RequestedBy)
+}
+
+// EnqueueFields agrega N alterações inline em um único Job multi-parâmetro.
+// Mantém atomicidade (todos os parâmetros vão no mesmo SetParameterValues),
+// reduz ruído no histórico e simplifica o handler de "Salvar card" da UI.
+//
+// Quando reqs vier vazio, devolve (nil, nil) — caller pode tratar como no-op
+// (ex: usuário clicou Salvar sem alterar nada).
+func (s *Service) EnqueueFields(ctx context.Context, deviceID uuid.UUID, reqs []SingleFieldRequest, requestedBy *uuid.UUID) (*prov.Job, error) {
+	if deviceID == uuid.Nil {
 		return nil, fmt.Errorf("provisioning: device_id obrigatório")
 	}
-	if strings.TrimSpace(req.TRPath) == "" {
-		return nil, fmt.Errorf("provisioning: tr_path obrigatório")
-	}
-	if !req.DataType.Valid() {
-		req.DataType = tmpl.DataTypeString
+	if len(reqs) == 0 {
+		return nil, nil
 	}
 
-	value, err := coerceValue(req.RawValue, req.DataType)
-	if err != nil {
-		return nil, fmt.Errorf("provisioning: valor inválido para %s: %w", req.CanonicalKey, err)
+	resolved := make([]tmpl.ResolvedParameter, 0, len(reqs))
+	for _, req := range reqs {
+		if strings.TrimSpace(req.TRPath) == "" {
+			return nil, fmt.Errorf("provisioning: tr_path obrigatório (%s)", req.CanonicalKey)
+		}
+		dt := req.DataType
+		if !dt.Valid() {
+			dt = tmpl.DataTypeString
+		}
+		value, err := coerceValue(req.RawValue, dt)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: valor inválido para %s: %w", req.CanonicalKey, err)
+		}
+		resolved = append(resolved, tmpl.ResolvedParameter{
+			CanonicalKey: req.CanonicalKey,
+			TRPath:       req.TRPath,
+			Value:        value,
+			DataType:     dt,
+			IsSecret:     req.IsSecret,
+		})
 	}
-
-	resolved := []tmpl.ResolvedParameter{{
-		CanonicalKey: req.CanonicalKey,
-		TRPath:       req.TRPath,
-		Value:        value,
-		DataType:     req.DataType,
-		IsSecret:     req.IsSecret,
-	}}
 
 	// Sem profile_id porque a edição inline não passa por profile —
 	// usamos uuid.Nil + version=0 no envelope só como marcadores. O worker
@@ -69,9 +85,9 @@ func (s *Service) EnqueueSingleField(ctx context.Context, req SingleFieldRequest
 	}
 
 	job := &prov.Job{
-		DeviceID:    req.DeviceID,
+		DeviceID:    deviceID,
 		ProfileID:   nil, // ad-hoc, sem profile
-		RequestedBy: req.RequestedBy,
+		RequestedBy: requestedBy,
 		Status:      prov.JobQueued,
 		Payload:     payload,
 		ScheduledAt: time.Now(),

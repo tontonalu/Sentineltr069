@@ -135,11 +135,24 @@ func (h *DeviceTabsHandler) Tab(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UpdateField POST /devices/{id}/fields/{canonical_key}
-// Form: value=...
-// Resposta: fragmento HTMX com a linha do field atualizada + banner de job.
-func (h *DeviceTabsHandler) UpdateField(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := h.deviceFromURL(w, r)
+// UpdateFields POST /devices/{id}/fields
+//
+// Substitui o antigo POST /fields/{canonical_key} (1 form por linha) pelo
+// padrão "1 form por card". O HTML envia:
+//
+//	tab=<device|internet|wireless|lan|voip>  → para re-renderizar o pane certo
+//	value_<canonical_key>=<novo_valor>       → 1 input por linha editável
+//
+// Regra de senha: inputs marcados IsSecret cujo value vier vazio são
+// silenciosamente preservados (a UI deixa o campo em branco quando o
+// operador não quer trocar a senha). Demais valores entram em 1 único job
+// multi-parâmetro (SetParameterValues atômico).
+//
+// Resposta: fragmento HTML do pane inteiro (mesmo conteúdo de
+// GET /devices/{id}/tabs/{tab}) + banner de job/erro no topo. HTMX faz
+// swap="innerHTML" no pane.
+func (h *DeviceTabsHandler) UpdateFields(w http.ResponseWriter, r *http.Request) {
+	id, dev, ok := h.deviceFromURL(w, r)
 	if !ok {
 		return
 	}
@@ -147,11 +160,22 @@ func (h *DeviceTabsHandler) UpdateField(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "form inválido", http.StatusBadRequest)
 		return
 	}
-	key := strings.TrimSpace(chi.URLParam(r, "canonical_key"))
-	value := r.PostForm.Get("value")
-	if key == "" {
-		http.Error(w, "canonical_key obrigatório", http.StatusBadRequest)
+	tab := strings.ToLower(strings.TrimSpace(r.PostForm.Get("tab")))
+	if tab == "" {
+		http.Error(w, "tab obrigatório", http.StatusBadRequest)
 		return
+	}
+
+	values := map[string]string{}
+	for name, vs := range r.PostForm {
+		if !strings.HasPrefix(name, "value_") || len(vs) == 0 {
+			continue
+		}
+		key := strings.TrimPrefix(name, "value_")
+		if key == "" {
+			continue
+		}
+		values[key] = vs[0]
 	}
 
 	var actorID *uuid.UUID
@@ -159,22 +183,56 @@ func (h *DeviceTabsHandler) UpdateField(w http.ResponseWriter, r *http.Request) 
 		actorID = &u.ID
 	}
 
-	field, jobID, err := h.ProfileView.UpdateField(r.Context(), id, key, value, actorID)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err != nil {
-		// Devolvemos 200 com fragmento de erro para HTMX renderizar inline
-		// (em vez de quebrar a UI). O field continua presente, com Error.
-		_ = devicepages.FieldError(devicepages.FieldErrorInput{
-			CanonicalKey: key, Message: err.Error(),
-		}).Render(r.Context(), w)
-		return
-	}
+
+	results, jobID, err := h.ProfileView.UpdateFields(r.Context(), id, values, actorID)
 	csrf := mw.CSRFTokenFromContext(r.Context())
 	canEdit := userHasPermission(r, "device", "configure")
-	_ = devicepages.FieldRow(devicepages.FieldRowInput{
-		DeviceID:  id, Field: *field, CSRFToken: csrf, CanEdit: canEdit,
-		EnqueuedJob: jobID,
-	}).Render(r.Context(), w)
+
+	// Banner contextual no topo do pane: erro, job enfileirado, ou só skips.
+	banner := devicepages.FieldBatchBanner(devicepages.FieldBatchInput{
+		DeviceID: id, JobID: jobID, Err: err, Results: results,
+	})
+
+	// Re-renderiza o pane completo com os valores mais recentes do NBI.
+	// O snapshot do GenieACS já é invalidado pelo postTask que o worker
+	// dispara — aqui carregamos novamente para refletir o que existir.
+	pv, _ := h.ProfileView.LoadProfileView(r.Context(), id)
+
+	switch tab {
+	case "device":
+		vendor, model, customer, pop := h.loadIdentificationLookups(r, dev)
+		_ = banner.Render(r.Context(), w)
+		_ = devicepages.TabDevice(devicepages.TabInput{
+			Device: *dev, Vendor: vendor, Model: model, Customer: customer, POP: pop,
+			View: pv, CSRFToken: csrf, CanEdit: canEdit,
+		}).Render(r.Context(), w)
+	case "internet", "wireless", "lan", "voip":
+		category, title := tabCategoryAndTitle(tab)
+		_ = banner.Render(r.Context(), w)
+		_ = devicepages.TabCategory(devicepages.CategoryInput{
+			Device: *dev, View: pv, CSRFToken: csrf, CanEdit: canEdit,
+			Category: category, Title: title,
+		}).Render(r.Context(), w)
+	default:
+		http.Error(w, "tab desconhecido", http.StatusBadRequest)
+	}
+}
+
+// tabCategoryAndTitle mapeia o nome da aba (URL/form) para (canonical_category,
+// título exibido). Reusa as mesmas strings do switch em Tab().
+func tabCategoryAndTitle(tab string) (string, string) {
+	switch tab {
+	case "internet":
+		return "wan", "Internet"
+	case "wireless":
+		return "wifi", "Wireless"
+	case "lan":
+		return "lan", "LAN"
+	case "voip":
+		return "voice", "VoIP"
+	}
+	return "", ""
 }
 
 // ──────────── helpers ────────────

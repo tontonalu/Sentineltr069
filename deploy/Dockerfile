@@ -14,8 +14,9 @@ RUN go mod download || true
 # Código
 COPY . .
 
-# Geração de templates (templ)
-RUN go install github.com/a-h/templ/cmd/templ@latest && \
+# Geração de templates (templ) — pinada no SHA do go.mod para evitar drift
+# entre gerador (`@latest`) e runtime (`go.mod`).
+RUN go install "github.com/a-h/templ/cmd/templ@$(go list -m -f '{{.Version}}' github.com/a-h/templ)" && \
     templ generate
 
 # Tailwind CLI standalone (sem precisar instalar Node) gera web/static/css/app.css.

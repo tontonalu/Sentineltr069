@@ -1,20 +1,16 @@
 package devices
 
 import (
-	"github.com/google/uuid"
-
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
 	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 )
 
 // FieldRow renderiza 1 linha de configuração com 2 layouts distintos:
 //
-//   - Read-only: rótulo + valor em destaque, sem form. Apenas exibição.
-//   - Writable:  inline editor (HTMX swap) com o valor atual já carregado
-//     no input.
-//
-// O TRPath e timestamp ficam num footer discreto, fora do fluxo principal,
-// pra não competir com o conteúdo.
+//   - Read-only: rótulo + valor em destaque. Apenas exibição.
+//   - Writable:  input inline com `name="value_<canonical_key>"`. O <form>
+//     wrapper fica no card (1 form por área), com 1 botão Salvar único.
+//     Esta linha não renderiza form/botão próprio.
 templ FieldRow(in FieldRowInput) {
 	if in.Field.Writable && in.CanEdit {
 		@fieldRowEditable(in)
@@ -24,9 +20,6 @@ templ FieldRow(in FieldRowInput) {
 }
 
 // fieldRowReadonly — apresentação enxuta: rótulo à esquerda, valor à direita.
-// Sem TRPath visível (fica disponível via title= para inspeção). Sem
-// "atualizado HH:MM:SS" — já existe contexto no header da aba e isso polui
-// a página inteira quando há 30+ campos.
 templ fieldRowReadonly(in FieldRowInput) {
 	<div
 		class="rounded border border-sentinel-100 bg-white px-4 py-2.5"
@@ -53,9 +46,8 @@ templ fieldRowReadonly(in FieldRowInput) {
 	</div>
 }
 
-// fieldRowEditable — header com label + badge "editável", form inline em
-// linha separada (input flex-1 + botão à direita). Sem TRPath visível —
-// disponível via tooltip (title=) na borda do card.
+// fieldRowEditable — label + input inline. Sem form, sem botão Salvar:
+// o card pai agrupa todos os inputs em 1 único form com 1 botão.
 templ fieldRowEditable(in FieldRowInput) {
 	<div
 		class="rounded border border-sky-100 bg-white px-4 py-3 shadow-sm"
@@ -63,49 +55,44 @@ templ fieldRowEditable(in FieldRowInput) {
 		title={ in.Field.TRPath }
 	>
 		<div class="flex items-baseline justify-between gap-2">
-			<div class="text-xs font-medium text-sentinel-700">
+			<label class="text-xs font-medium text-sentinel-700" for={ "input-" + in.Field.CanonicalKey }>
 				{ in.Field.Label }
 				if in.Field.IsSecret {
 					<span class="ml-1 inline-block rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">secret</span>
 				}
-			</div>
+			</label>
 			<span class="text-[10px] font-medium uppercase tracking-wider text-sky-700">
 				editável
 			</span>
 		</div>
-		<form
-			method="POST"
-			action={ templ.URL("/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey) }
-			hx-post={ "/devices/" + in.DeviceID.String() + "/fields/" + in.Field.CanonicalKey }
-			hx-target={ "#field-" + in.Field.CanonicalKey }
-			hx-swap="outerHTML"
-			class="mt-2 flex items-center gap-2"
-		>
-			<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
+		<div class="mt-2">
 			@fieldInput(in.Field)
-			<button type="submit" class="btn-primary whitespace-nowrap text-xs">Salvar</button>
-		</form>
+		</div>
 		if in.Field.Error != "" {
 			<p class="mt-1 text-[11px] text-amber-700">{ in.Field.Error }</p>
-		}
-		if in.EnqueuedJob != uuid.Nil {
-			@fieldJobBanner(in)
 		}
 	</div>
 }
 
 // fieldInput escolhe o widget HTML adequado ao DataType.
+// Importante: o atributo `name` é `value_<canonical_key>` (e não `value`),
+// porque vários inputs convivem no mesmo <form> do card pai.
 templ fieldInput(f devapp.FieldView) {
 	if f.IsSecret {
 		<input
 			type="password"
-			name="value"
-			placeholder="•••••••• (digite o novo valor)"
+			id={ "input-" + f.CanonicalKey }
+			name={ "value_" + f.CanonicalKey }
+			placeholder="•••••••• (deixe vazio para manter)"
 			autocomplete="new-password"
-			class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
+			class="w-full rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
 		/>
 	} else if f.DataType == tmpl.DataTypeBool {
-		<select name="value" class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm">
+		<select
+			id={ "input-" + f.CanonicalKey }
+			name={ "value_" + f.CanonicalKey }
+			class="w-full rounded border border-sentinel-300 px-2 py-1 text-sm"
+		>
 			if isTruthyValue(f.CurrentValue) {
 				<option value="true" selected>Ativo</option>
 				<option value="false">Inativo</option>
@@ -117,24 +104,16 @@ templ fieldInput(f devapp.FieldView) {
 	} else {
 		<input
 			type={ inputTypeFor(f.DataType) }
-			name="value"
+			id={ "input-" + f.CanonicalKey }
+			name={ "value_" + f.CanonicalKey }
 			value={ f.CurrentValue }
-			class="flex-1 rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
+			class="w-full rounded border border-sentinel-300 px-2 py-1 text-sm font-mono"
 		/>
 	}
 }
 
-templ fieldJobBanner(in FieldRowInput) {
-	<p class="mt-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
-		Job enfileirado —
-		<a href={ templ.URL("/provisioning/jobs/" + in.EnqueuedJob.String()) } class="underline">
-			{ shortUUID(in.EnqueuedJob) }
-		</a>
-	</p>
-}
-
-// FieldError — fragmento devolvido pelo handler quando UpdateField falha.
-// HTMX troca a linha pelo erro inline; usuário pode tentar de novo.
+// FieldError — fragmento de erro inline (legado). Mantido por compat caso
+// algum fluxo ainda renderize uma linha de erro isoladamente.
 templ FieldError(in FieldErrorInput) {
 	<div class="rounded border border-amber-300 bg-amber-50 px-4 py-3" id={ "field-" + in.CanonicalKey }>
 		<p class="text-sm text-amber-800">
@@ -146,31 +125,29 @@ templ FieldError(in FieldErrorInput) {
 	</div>
 }
 
-// inputTypeFor mapeia DataType → atributo type do input.
-func inputTypeFor(dt tmpl.DataType) string {
-	switch dt {
-	case tmpl.DataTypeInt, tmpl.DataTypeUnsignedInt:
-		return "number"
-	case tmpl.DataTypeDateTime:
-		return "datetime-local"
+// FieldBatchBanner — feedback do POST /devices/{id}/fields (batch).
+//
+// Mostra:
+//   - erro vermelho se Err != nil (form não atômico não é possível —
+//     ou a validação falhou e nada foi enfileirado);
+//   - badge verde com link pro job quando JobID != uuid.Nil;
+//   - lista de campos preservados (secrets em branco), informativa.
+templ FieldBatchBanner(in FieldBatchInput) {
+	if in.Err != nil {
+		<div class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+			<strong>Falha ao salvar:</strong> { in.Err.Error() }
+		</div>
+	} else if in.JobID != [16]byte{} {
+		<div class="mb-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+			Configurações enviadas —
+			<a href={ templ.URL("/provisioning/jobs/" + in.JobID.String()) } class="font-medium underline">
+				job { shortUUID(in.JobID) }
+			</a>
+			{ batchSkippedSuffix(in.Results) }
+		</div>
+	} else if hasSkipped(in.Results) {
+		<div class="mb-3 rounded border border-sentinel-200 bg-sentinel-50 px-3 py-2 text-sm text-sentinel-700">
+			Nada a enviar — { batchSkippedSuffix(in.Results) }
+		</div>
 	}
-	return "text"
-}
-
-// isTruthyValue — interpretação leniente para popular <select> de bool.
-func isTruthyValue(v string) bool {
-	switch v {
-	case "true", "1", "TRUE", "True", "yes", "on":
-		return true
-	}
-	return false
-}
-
-// shortUUID — primeiros 8 chars; suficiente para link clicável legível.
-func shortUUID(id uuid.UUID) string {
-	s := id.String()
-	if len(s) >= 8 {
-		return s[:8] + "…"
-	}
-	return s
 }

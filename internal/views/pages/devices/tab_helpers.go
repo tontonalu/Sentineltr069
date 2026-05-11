@@ -7,7 +7,78 @@ import (
 	"github.com/google/uuid"
 
 	devapp "github.com/celinet/sentinel-acs/internal/application/devices"
+	tmpl "github.com/celinet/sentinel-acs/internal/domain/templates"
 )
+
+// inputTypeFor mapeia DataType → atributo type do input.
+func inputTypeFor(dt tmpl.DataType) string {
+	switch dt {
+	case tmpl.DataTypeInt, tmpl.DataTypeUnsignedInt:
+		return "number"
+	case tmpl.DataTypeDateTime:
+		return "datetime-local"
+	}
+	return "text"
+}
+
+// isTruthyValue — interpretação leniente para popular <select> de bool.
+func isTruthyValue(v string) bool {
+	switch v {
+	case "true", "1", "TRUE", "True", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// shortUUID — primeiros 8 chars; suficiente para link clicável legível.
+func shortUUID(id uuid.UUID) string {
+	s := id.String()
+	if len(s) >= 8 {
+		return s[:8] + "…"
+	}
+	return s
+}
+
+// hasAnyEditable — true quando o usuário pode editar e ao menos 1 field do
+// card é writable. Usado pelo wrapper de form do card para decidir se
+// renderiza o <form> com botão Salvar ou só os campos read-only.
+func hasAnyEditable(canEdit bool, fields []devapp.FieldView) bool {
+	if !canEdit {
+		return false
+	}
+	for _, f := range fields {
+		if f.Writable {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSkipped — true quando ao menos um campo foi preservado (secret em
+// branco). Usado pelo banner para decidir se mostra a "nota informativa".
+func hasSkipped(results []devapp.FieldUpdateResult) bool {
+	for _, r := range results {
+		if r.Skipped {
+			return true
+		}
+	}
+	return false
+}
+
+// batchSkippedSuffix — sufixo textual listando os canonical_keys preservados.
+// Quando não há nenhum skip, devolve string vazia.
+func batchSkippedSuffix(results []devapp.FieldUpdateResult) string {
+	keys := make([]string, 0)
+	for _, r := range results {
+		if r.Skipped {
+			keys = append(keys, r.CanonicalKey)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	return "senha em branco preservada: " + strings.Join(keys, ", ")
+}
 
 // redundantDeviceKeys — chaves canônicas da categoria 'device' que já
 // aparecem na Identificação como campos do Device entity. Removemos da

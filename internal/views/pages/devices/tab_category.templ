@@ -46,6 +46,46 @@ templ categoryBody(in CategoryInput) {
 	}
 }
 
+// tabName devolve o `tab` (URL/form) para o handler de batch save a partir
+// do CategoryInput. Mapeamento espelha o switch do handler Tab().
+func tabName(in CategoryInput) string {
+	switch in.Category {
+	case "wan":
+		return "internet"
+	case "wifi":
+		return "wireless"
+	case "lan":
+		return "lan"
+	case "voice":
+		return "voip"
+	}
+	return ""
+}
+
+// cardForm — wrapper "1 form por card, 1 Salvar". Quando nenhum campo do
+// card é editável (ou usuário sem permissão), renderiza só os filhos sem
+// form/botão, para evitar Salvar sem efeito.
+templ cardForm(in CategoryInput, fields []devapp.FieldView) {
+	if hasAnyEditable(in.CanEdit, fields) {
+		<form
+			method="POST"
+			action={ templ.URL("/devices/" + in.Device.ID.String() + "/fields") }
+			hx-post={ "/devices/" + in.Device.ID.String() + "/fields" }
+			hx-target="closest .tab-pane"
+			hx-swap="innerHTML"
+		>
+			<input type="hidden" name="_csrf" value={ in.CSRFToken }/>
+			<input type="hidden" name="tab" value={ tabName(in) }/>
+			{ children... }
+			<div class="mt-3 flex justify-end">
+				<button type="submit" class="btn-primary text-xs">Salvar</button>
+			</div>
+		</form>
+	} else {
+		{ children... }
+	}
+}
+
 // wifiSubGroups separa rede 2.4 GHz / 5 GHz e demais (sem sufixo claro)
 // em cards distintos. Layout em 2 colunas para aproveitar a tela.
 templ wifiSubGroups(in CategoryInput, fields []devapp.FieldView) {
@@ -56,16 +96,18 @@ templ wifiSubGroups(in CategoryInput, fields []devapp.FieldView) {
 	if other := filterWifiOther(fields); len(other) > 0 {
 		<section class="rounded-lg bg-white p-4 shadow">
 			<h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-sentinel-500">Outros parâmetros Wi-Fi</h4>
-			<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-				for _, f := range other {
-					@FieldRow(FieldRowInput{
-						DeviceID:  in.Device.ID,
-						Field:     f,
-						CSRFToken: in.CSRFToken,
-						CanEdit:   in.CanEdit,
-					})
-				}
-			</div>
+			@cardForm(in, other) {
+				<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+					for _, f := range other {
+						@FieldRow(FieldRowInput{
+							DeviceID:  in.Device.ID,
+							Field:     f,
+							CSRFToken: in.CSRFToken,
+							CanEdit:   in.CanEdit,
+						})
+					}
+				</div>
+			}
 		</section>
 	}
 }
@@ -76,16 +118,18 @@ templ wifiBandCard(in CategoryInput, title string, fields []devapp.FieldView) {
 		if len(fields) == 0 {
 			<p class="text-xs text-sentinel-400">Não mapeado neste profile.</p>
 		} else {
-			<div class="space-y-2">
-				for _, f := range fields {
-					@FieldRow(FieldRowInput{
-						DeviceID:  in.Device.ID,
-						Field:     f,
-						CSRFToken: in.CSRFToken,
-						CanEdit:   in.CanEdit,
-					})
-				}
-			</div>
+			@cardForm(in, fields) {
+				<div class="space-y-2">
+					for _, f := range fields {
+						@FieldRow(FieldRowInput{
+							DeviceID:  in.Device.ID,
+							Field:     f,
+							CSRFToken: in.CSRFToken,
+							CanEdit:   in.CanEdit,
+						})
+					}
+				</div>
+			}
 		}
 	</section>
 }
@@ -104,7 +148,27 @@ templ wanSubCard(in CategoryInput, title string, fields []devapp.FieldView) {
 		if len(fields) == 0 {
 			<p class="text-xs text-sentinel-400">Não mapeado neste profile.</p>
 		} else {
-			<div class="space-y-2">
+			@cardForm(in, fields) {
+				<div class="space-y-2">
+					for _, f := range fields {
+						@FieldRow(FieldRowInput{
+							DeviceID:  in.Device.ID,
+							Field:     f,
+							CSRFToken: in.CSRFToken,
+							CanEdit:   in.CanEdit,
+						})
+					}
+				</div>
+			}
+		}
+	</section>
+}
+
+// plainFieldGrid — layout 2 colunas simples para LAN/VoIP/etc.
+templ plainFieldGrid(in CategoryInput, fields []devapp.FieldView) {
+	<section class="rounded-lg bg-white p-4 shadow">
+		@cardForm(in, fields) {
+			<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
 				for _, f := range fields {
 					@FieldRow(FieldRowInput{
 						DeviceID:  in.Device.ID,
@@ -115,21 +179,5 @@ templ wanSubCard(in CategoryInput, title string, fields []devapp.FieldView) {
 				}
 			</div>
 		}
-	</section>
-}
-
-// plainFieldGrid — layout 2 colunas simples para LAN/VoIP/etc.
-templ plainFieldGrid(in CategoryInput, fields []devapp.FieldView) {
-	<section class="rounded-lg bg-white p-4 shadow">
-		<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-			for _, f := range fields {
-				@FieldRow(FieldRowInput{
-					DeviceID:  in.Device.ID,
-					Field:     f,
-					CSRFToken: in.CSRFToken,
-					CanEdit:   in.CanEdit,
-				})
-			}
-		</div>
 	</section>
 }

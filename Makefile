@@ -9,7 +9,11 @@ SHELL := /bin/bash
 COMPOSE      := docker compose -f deploy/docker-compose.yml --env-file .env
 COMPOSE_PROD := docker compose -f deploy/docker-compose.prod.yml --env-file .env
 GO           := go
-TEMPL        := go run github.com/a-h/templ/cmd/templ@latest
+# `@latest` drifta do runtime pinado em go.mod e quebra a compilação quando o
+# gerador emite símbolos ainda não presentes na versão importada. Resolvemos
+# a versão exata a partir de go.mod (mesma estratégia do CI/Dockerfile).
+TEMPL_VERSION := $(shell go list -m -f '{{.Version}}' github.com/a-h/templ)
+TEMPL        := go run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
 GOOSE        := go run github.com/pressly/goose/v3/cmd/goose@latest
 SQLC         := go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
@@ -33,7 +37,7 @@ help: ## Lista os alvos disponíveis
 # ──────────────── Setup ────────────────
 .PHONY: setup
 setup: ## Instala ferramentas de dev (templ, goose, sqlc, air, gosec, govulncheck)
-	$(GO) install github.com/a-h/templ/cmd/templ@latest
+	$(GO) install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
 	$(GO) install github.com/pressly/goose/v3/cmd/goose@latest
 	$(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 	$(GO) install github.com/air-verse/air@latest
